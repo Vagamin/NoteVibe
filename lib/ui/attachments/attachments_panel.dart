@@ -173,12 +173,35 @@ class _AttachmentTile extends StatelessWidget {
       onTap: present ? onOpen : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(attachment.isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined),
+        child: Row(children: [
+          Tooltip(
+            message: dotMessage,
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Icon(attachment.isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: dotColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: scheme.surface, width: 2),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,17 +220,6 @@ class _AttachmentTile extends StatelessWidget {
               icon: const Icon(Icons.download_outlined),
               onPressed: onDownload,
             ),
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Tooltip(
-              message: dotMessage,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-              ),
-            ),
-          ),
           PopupMenuButton<String>(
             tooltip: 'Действия',
             onSelected: (v) {

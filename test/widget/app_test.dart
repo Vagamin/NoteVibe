@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:notevibe/data/attachment_storage.dart';
 import 'package:notevibe/data/note_store.dart';
 import 'package:notevibe/domain/version_vector.dart';
 import 'package:notevibe/main.dart';
@@ -27,7 +29,7 @@ Future<AppServices> makeServices() async {
     enableDiscovery: false,
     kdf: CodeKdf.fast,
   );
-  return AppServices(store, sync);
+  return AppServices(store, sync, AttachmentStorage(Directory.systemTemp.createTempSync('nv_att')));
 }
 
 Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size(1280, 800)}) async {

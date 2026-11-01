@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/attachment_storage.dart';
 import '../data/note_store.dart';
 import '../domain/note.dart';
 import '../sync/crypto/dpapi_key_store.dart';
@@ -20,7 +21,8 @@ import '../sync/sync_service.dart';
 class AppServices {
   final NoteStore store;
   final SyncService sync;
-  AppServices(this.store, this.sync);
+  final AttachmentStorage attachments;
+  AppServices(this.store, this.sync, this.attachments);
 
   /// Data folder for the portable build: `--data-dir <path>` (passed by the
   /// single-file launcher) or a `NoteVibe-Data` folder next to the exe.
@@ -76,7 +78,7 @@ class AppServices {
       debugPrint('Sync start failed: $e');
     }
     store.pruneChangeLog();
-    return AppServices(store, sync);
+    return AppServices(store, sync, AttachmentStorage(Directory(dir.path)));
   }
 
   static String _defaultName() {

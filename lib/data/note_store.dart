@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
 
+import '../domain/attachment.dart';
 import '../domain/conflict.dart';
 import '../domain/note.dart';
 import '../domain/peer.dart';
@@ -206,6 +207,7 @@ class NoteStore {
       );
       final seq = _appendLog(id, 'delete', del.version, deviceId);
       _writeNote(del, seq);
+      _db.execute('DELETE FROM attachments WHERE note_id = ?', [id]);
     });
     _notify();
   }
@@ -368,6 +370,55 @@ class NoteStore {
       );
     }
   }
+
+  // ---------------------------------------------------------------- attachments
+
+  Attachment _rowToAttachment(Row r) => Attachment(
+        id: r['id'] as String,
+        noteId: r['note_id'] as String,
+        name: r['name'] as String,
+        mime: r['mime'] as String,
+        size: r['size'] as int,
+        sha256: r['sha256'] as String,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(r['created'] as int),
+      );
+
+  List<Attachment> attachmentsFor(String noteId) => _db
+      .select('SELECT * FROM attachments WHERE note_id = ? ORDER BY created', [noteId])
+      .map(_rowToAttachment)
+      .toList();
+
+  Attachment addAttachment({
+    required String noteId,
+    required String name,
+    required String mime,
+    required int size,
+    required String sha256,
+  }) {
+    final a = Attachment(
+      id: _uuid.v4(),
+      noteId: noteId,
+      name: name,
+      mime: mime,
+      size: size,
+      sha256: sha256,
+      createdAt: _now(),
+    );
+    _db.execute(
+      'INSERT INTO attachments (id, note_id, name, mime, size, sha256, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [a.id, a.noteId, a.name, a.mime, a.size, a.sha256, a.createdAt.millisecondsSinceEpoch],
+    );
+    _notify();
+    return a;
+  }
+
+  void removeAttachment(String id) {
+    _db.execute('DELETE FROM attachments WHERE id = ?', [id]);
+    _notify();
+  }
+
+  Set<String> allAttachmentHashes() =>
+      _db.select('SELECT DISTINCT sha256 FROM attachments').map((r) => r['sha256'] as String).toSet();
 
   // ---------------------------------------------------------------- conflicts
 

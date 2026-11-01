@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../../data/note_store.dart';
 import '../../domain/note.dart';
 import '../conflicts/conflict_screen.dart';
+import '../attachments/attachments_panel.dart';
 import '../providers.dart';
 
 final _dateFmt = DateFormat('d MMM yyyy, HH:mm', 'ru');
@@ -234,6 +235,8 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                     customStyles: _styles(context),
                   ),
                 ),
+                const SizedBox(height: 16),
+                AttachmentsPanel(noteId: widget.noteId),
               ],
             ),
           ),

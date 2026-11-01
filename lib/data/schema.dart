@@ -57,6 +57,18 @@ const _migrations = <String>[
     value TEXT
   );
   ''',
+  '''
+  CREATE TABLE attachments (
+    id        TEXT PRIMARY KEY,
+    note_id   TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    name      TEXT NOT NULL,
+    mime      TEXT NOT NULL DEFAULT '',
+    size      INTEGER NOT NULL,
+    sha256    TEXT NOT NULL,
+    created   INTEGER NOT NULL
+  );
+  CREATE INDEX attachments_note ON attachments(note_id);
+  ''',
 ];
 
 int get schemaVersion => _migrations.length;

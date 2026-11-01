@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../app_version.dart';
+import '../attachments/attachment_service.dart';
 import '../providers.dart';
 import 'update_card.dart';
 
@@ -31,6 +33,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (n.isEmpty) return;
     ref.read(storeProvider).setSetting('device_name', n);
     ref.read(syncProvider).rename(n);
+  }
+
+  Future<void> _pickSaveDir() async {
+    final dir = await FilePicker.getDirectoryPath(dialogTitle: 'Папка для файлов');
+    if (dir == null) return;
+    ref.read(storeProvider).setSetting(AttachmentService.saveDirSetting, dir);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -94,6 +103,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           const UpdateCard(),
+          const SizedBox(height: 24),
+          Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.folder_outlined),
+            title: const Text('Папка для сохранения файлов'),
+            subtitle: Text(
+              (ref.watch(storeProvider).getSetting(AttachmentService.saveDirSetting) ?? '').isEmpty
+                  ? 'Загрузки (по умолчанию)'
+                  : ref.watch(storeProvider).getSetting(AttachmentService.saveDirSetting)!,
+            ),
+            trailing: TextButton(onPressed: _pickSaveDir, child: const Text('Выбрать')),
+          ),
+          if ((ref.read(storeProvider).getSetting(AttachmentService.saveDirSetting) ?? '').isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () {
+                  ref.read(storeProvider).setSetting(AttachmentService.saveDirSetting, '');
+                  setState(() {});
+                },
+                child: const Text('Вернуть «Загрузки»'),
+              ),
+            ),
           const SizedBox(height: 24),
           Text(
             'NoteVibe $appVersion\n\n'

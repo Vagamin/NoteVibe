@@ -245,7 +245,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   color: Theme.of(context).cardTheme.color,
                   border: Border(top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5))),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: toolbar,
               ),
             ),
@@ -311,61 +311,67 @@ class FormatToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = large ? 26.0 : 20.0;
-    final opts = QuillToolbarToggleStyleButtonOptions(iconSize: size, iconButtonFactor: large ? 1.9 : 1.7);
+    final size = large ? 22.0 : 20.0;
+    final factor = large ? 1.5 : 1.7;
+    final opts = QuillToolbarToggleStyleButtonOptions(iconSize: size, iconButtonFactor: factor);
     final divider = SizedBox(
       height: size,
-      child: VerticalDivider(width: large ? 16 : 12, color: Theme.of(context).colorScheme.outlineVariant),
+      child: VerticalDivider(width: large ? 10 : 12, color: Theme.of(context).colorScheme.outlineVariant),
     );
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          QuillToolbarToggleStyleButton(
-            controller: controller,
-            attribute: Attribute.bold,
-            options: opts.copyWithTooltip('Жирный (Ctrl+B)', Icons.format_bold),
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: constraints.maxWidth),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              QuillToolbarToggleStyleButton(
+                controller: controller,
+                attribute: Attribute.bold,
+                options: opts.copyWithTooltip('Жирный (Ctrl+B)', Icons.format_bold),
+              ),
+              QuillToolbarToggleStyleButton(
+                controller: controller,
+                attribute: Attribute.italic,
+                options: opts.copyWithTooltip('Курсив (Ctrl+I)', Icons.format_italic),
+              ),
+              QuillToolbarToggleStyleButton(
+                controller: controller,
+                attribute: Attribute.underline,
+                options: opts.copyWithTooltip('Подчёркнутый (Ctrl+U)', Icons.format_underline),
+              ),
+              divider,
+              QuillToolbarToggleCheckListButton(
+                controller: controller,
+                options: QuillToolbarToggleCheckListButtonOptions(
+                  iconSize: size,
+                  iconButtonFactor: factor,
+                  tooltip: 'Чек-лист',
+                  iconData: Icons.checklist,
+                ),
+              ),
+              QuillToolbarToggleStyleButton(
+                controller: controller,
+                attribute: Attribute.ul,
+                options: opts.copyWithTooltip('Список', Icons.format_list_bulleted),
+              ),
+              divider,
+              QuillToolbarHistoryButton(
+                controller: controller,
+                isUndo: true,
+                options: QuillToolbarHistoryButtonOptions(
+                    iconSize: size, iconButtonFactor: factor, tooltip: 'Отменить'),
+              ),
+              QuillToolbarHistoryButton(
+                controller: controller,
+                isUndo: false,
+                options: QuillToolbarHistoryButtonOptions(
+                    iconSize: size, iconButtonFactor: factor, tooltip: 'Повторить'),
+              ),
+            ],
           ),
-          QuillToolbarToggleStyleButton(
-            controller: controller,
-            attribute: Attribute.italic,
-            options: opts.copyWithTooltip('Курсив (Ctrl+I)', Icons.format_italic),
-          ),
-          QuillToolbarToggleStyleButton(
-            controller: controller,
-            attribute: Attribute.underline,
-            options: opts.copyWithTooltip('Подчёркнутый (Ctrl+U)', Icons.format_underline),
-          ),
-          divider,
-          QuillToolbarToggleCheckListButton(
-            controller: controller,
-            options: QuillToolbarToggleCheckListButtonOptions(
-              iconSize: size,
-              iconButtonFactor: large ? 1.9 : 1.7,
-              tooltip: 'Чек-лист',
-              iconData: Icons.checklist,
-            ),
-          ),
-          QuillToolbarToggleStyleButton(
-            controller: controller,
-            attribute: Attribute.ul,
-            options: opts.copyWithTooltip('Список', Icons.format_list_bulleted),
-          ),
-          divider,
-          QuillToolbarHistoryButton(
-            controller: controller,
-            isUndo: true,
-            options: QuillToolbarHistoryButtonOptions(
-                iconSize: size, iconButtonFactor: large ? 1.9 : 1.7, tooltip: 'Отменить'),
-          ),
-          QuillToolbarHistoryButton(
-            controller: controller,
-            isUndo: false,
-            options: QuillToolbarHistoryButtonOptions(
-                iconSize: size, iconButtonFactor: large ? 1.9 : 1.7, tooltip: 'Повторить'),
-          ),
-        ],
+        ),
       ),
     );
   }

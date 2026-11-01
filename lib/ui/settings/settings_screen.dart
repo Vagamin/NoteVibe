@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_version.dart';
 import '../providers.dart';
+import 'update_card.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -89,6 +90,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             'Порт: ${sync.port} · отпечаток ключа: ${sync.identity.fingerprint}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          const SizedBox(height: 24),
+          Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          const UpdateCard(),
           const SizedBox(height: 24),
           Text(
             'NoteVibe $appVersion\n\n'

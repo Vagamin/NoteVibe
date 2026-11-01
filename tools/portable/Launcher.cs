@@ -53,6 +53,9 @@ static class Launcher
             }
 
             var dataDir = PickDataDir();
+            // Lets the app find its data even when started directly (taskbar pin, shortcut).
+            File.WriteAllText(Path.Combine(appDir, "portable.json"),
+                "{\"dataDir\":\"" + dataDir.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"}");
             var psi = new ProcessStartInfo(exe);
             psi.Arguments = "--data-dir \"" + dataDir.TrimEnd('\\') + "\"";
             psi.WorkingDirectory = appDir;

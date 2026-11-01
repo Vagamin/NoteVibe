@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -27,8 +28,16 @@ class AppServices {
     final i = args.indexOf('--data-dir');
     if (i >= 0 && i + 1 < args.length) return Directory(args[i + 1]);
     if (Platform.isWindows) {
-      final d = Directory(p.join(File(Platform.resolvedExecutable).parent.path, 'NoteVibe-Data'));
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final d = Directory(p.join(exeDir, 'NoteVibe-Data'));
       if (d.existsSync()) return d;
+      final marker = File(p.join(exeDir, 'portable.json'));
+      if (marker.existsSync()) {
+        try {
+          final path = (jsonDecode(marker.readAsStringSync()) as Map)['dataDir'] as String?;
+          if (path != null && path.isNotEmpty) return Directory(path);
+        } catch (_) {}
+      }
     }
     return null;
   }

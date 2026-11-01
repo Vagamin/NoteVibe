@@ -1,4 +1,5 @@
 import '../../data/note_store.dart';
+import '../../domain/attachment.dart';
 import '../../domain/note.dart';
 import '../crypto/secure_channel.dart';
 import '../transport/frame_channel.dart';
@@ -88,6 +89,7 @@ class SyncEngine {
               'n': rn.note.toWire(),
               'd': rn.dismissed,
               if (rn.conflicts.isNotEmpty) 'c': [for (final c in rn.conflicts) c.toWire()],
+              'a': [for (final a in store.attachmentsFor(rn.note.id)) a.toWire()],
             }
         ],
         'last': batch.lastSeq,
@@ -112,12 +114,17 @@ class SyncEngine {
       final notes = <RemoteNote>[];
       for (final item in (m['notes'] as List)) {
         final map = item as Map<String, dynamic>;
+        final note = Note.fromWire(map['n'] as Map<String, dynamic>);
         notes.add(RemoteNote(
-          Note.fromWire(map['n'] as Map<String, dynamic>),
-          ((map['d'] as List?) ?? const []).cast<String>(),
-          [
+          note,
+          dismissed: ((map['d'] as List?) ?? const []).cast<String>(),
+          conflicts: [
             for (final c in (map['c'] as List?) ?? const [])
               Note.fromWire(c as Map<String, dynamic>)
+          ],
+          attachments: [
+            for (final a in (map['a'] as List?) ?? const [])
+              Attachment.fromWire(a as Map<String, dynamic>, noteId: note.id)
           ],
         ));
       }

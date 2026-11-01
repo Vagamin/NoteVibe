@@ -21,6 +21,25 @@ class Attachment {
 
   bool get isImage => mime.startsWith('image/');
 
+  Map<String, dynamic> toWire() => {
+        'id': id,
+        'name': name,
+        'mime': mime,
+        'size': size,
+        'sha256': sha256,
+        'created': createdAt.millisecondsSinceEpoch,
+      };
+
+  static Attachment fromWire(Map<String, dynamic> m, {required String noteId}) => Attachment(
+        id: m['id'] as String,
+        noteId: noteId,
+        name: m['name'] as String,
+        mime: m['mime'] as String? ?? '',
+        size: (m['size'] as num).toInt(),
+        sha256: m['sha256'] as String,
+        createdAt: DateTime.fromMillisecondsSinceEpoch((m['created'] as num).toInt()),
+      );
+
   String get sizeLabel {
     const kb = 1024;
     const mb = 1024 * 1024;

@@ -194,6 +194,23 @@ class NoteStore {
     return result;
   }
 
+  /// Marks a note as changed (new version) without touching its text, so the
+  /// change is synced. Used when its attachments change.
+  void touchNote(String id) {
+    _tx(() {
+      final cur = getNote(id);
+      if (cur == null || cur.deleted) return;
+      final next = cur.copyWith(
+        updatedAt: _now(),
+        version: cur.version.increment(deviceId),
+        lastDevice: deviceId,
+      );
+      final seq = _appendLog(id, 'upsert', next.version, deviceId);
+      _writeNote(next, seq);
+    });
+    _notify();
+  }
+
   /// Soft delete (tombstone) so the deletion propagates to other devices.
   void deleteNote(String id) {
     _tx(() {
@@ -258,8 +275,9 @@ class NoteStore {
       final id = r['id'] as String;
       items.add(RemoteNote(
         _rowToNote(r).copyWith(hasConflict: false),
-        (jsonDecode(r['dismissed'] as String) as List).cast<String>(),
-        [for (final c in conflictsFor(id)) c.other],
+        dismissed: (jsonDecode(r['dismissed'] as String) as List).cast<String>(),
+        conflicts: [for (final c in conflictsFor(id)) c.other],
+        attachments: attachmentsFor(id),
       ));
     }
     return ChangeBatch(items, last, rs.length < limit);
@@ -289,6 +307,7 @@ class NoteStore {
       for (final rn in batch) {
         _applyOne(rn, result, peerId);
         _importRemoteConflicts(rn);
+        _applyAttachments(rn);
       }
       _db.execute(
         'UPDATE peers SET recv_cursor = MAX(recv_cursor, ?) WHERE device_id = ?',
@@ -297,6 +316,24 @@ class NoteStore {
     });
     if (result.applied > 0 || result.conflicts > 0) _notify();
     return result;
+  }
+
+  /// Imports attachment metadata of a received note. Only the metadata moves:
+  /// the bytes stay on the device that added the file.
+  void _applyAttachments(RemoteNote rn) {
+    if (rn.note.deleted) {
+      _db.execute('DELETE FROM attachments WHERE note_id = ?', [rn.note.id]);
+      return;
+    }
+    if (getNote(rn.note.id) == null) return;
+    // The remote list is the full set of attachments of that note version.
+    _db.execute('DELETE FROM attachments WHERE note_id = ?', [rn.note.id]);
+    for (final a in rn.attachments) {
+      _db.execute(
+        'INSERT OR IGNORE INTO attachments (id, note_id, name, mime, size, sha256, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [a.id, rn.note.id, a.name, a.mime, a.size, a.sha256, a.createdAt.millisecondsSinceEpoch],
+      );
+    }
   }
 
   void _applyOne(RemoteNote rn, ApplyResult result, String peerId) {
@@ -408,13 +445,14 @@ class NoteStore {
       'INSERT INTO attachments (id, note_id, name, mime, size, sha256, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [a.id, a.noteId, a.name, a.mime, a.size, a.sha256, a.createdAt.millisecondsSinceEpoch],
     );
-    _notify();
+    touchNote(noteId);
     return a;
   }
 
   void removeAttachment(String id) {
+    final row = _db.select('SELECT note_id FROM attachments WHERE id = ?', [id]);
     _db.execute('DELETE FROM attachments WHERE id = ?', [id]);
-    _notify();
+    if (row.isNotEmpty) touchNote(row.first['note_id'] as String);
   }
 
   Set<String> allAttachmentHashes() =>
@@ -576,5 +614,11 @@ class RemoteNote {
   final Note note;
   final List<String> dismissed;
   final List<Note> conflicts;
-  const RemoteNote(this.note, [this.dismissed = const [], this.conflicts = const []]);
+  final List<Attachment> attachments;
+  const RemoteNote(
+    this.note, {
+    this.dismissed = const [],
+    this.conflicts = const [],
+    this.attachments = const [],
+  });
 }

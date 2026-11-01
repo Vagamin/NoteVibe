@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../data/attachment_storage.dart';
 import '../data/note_store.dart';
+import '../domain/attachment.dart';
 import '../domain/peer.dart';
 import 'crypto/keys.dart';
 import 'crypto/secure_channel.dart';
 import 'discovery/lan_discovery.dart';
+import 'engine/file_transfer.dart';
 import 'engine/sync_engine.dart';
 import 'pairing/pairing.dart';
 import 'transport/frame_channel.dart';
@@ -57,6 +60,7 @@ class SyncService {
   final CodeKdf kdf;
   final Duration periodic;
   final Duration debounce;
+  final AttachmentStorage? files;
 
   ServerSocket? _server;
   LanDiscovery? _discovery;
@@ -88,6 +92,7 @@ class SyncService {
     this.kdf = const CodeKdf(),
     this.periodic = const Duration(seconds: 30),
     this.debounce = const Duration(seconds: 2),
+    this.files,
   });
 
   // ------------------------------------------------------------ lifecycle
@@ -315,13 +320,49 @@ class SyncService {
     await _runEngine(sc, initiator: true);
   }
 
+  /// Downloads the bytes of [a] from the first paired device that has them.
+  /// Throws if no reachable device has the file.
+  Future<void> fetchAttachment(Attachment a) async {
+    final storeFiles = files;
+    if (storeFiles == null) throw PairingException('Хранилище файлов недоступно');
+    Object? lastErr;
+    for (final p in store.listPeers()) {
+      final addr = _addressOf(p);
+      if (addr == null) continue;
+      final key = await peerKeys.get(p.deviceId);
+      if (key == null) continue;
+      try {
+        final ch = await SocketFrameChannel.connect(addr.$1, addr.$2);
+        final sc = await initiateHandshake(ch, identity,
+            mode: HandshakeMode.fetch, expectedId: p.deviceId, expectedKey: key);
+        try {
+          await requestAttachment(sc, a, storeFiles);
+        } finally {
+          await sc.close();
+        }
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr == null) throw PairingException('Нет доступных устройств для загрузки');
+    throw PairingException('Файл не загружен: ${_describe(lastErr)}');
+  }
+
   Future<SyncStats> _runEngine(SecureChannel sc, {required bool initiator}) async {
     _suppressDirty++;
     try {
-      return await SyncEngine(store).run(sc, initiator: initiator);
+      return await SyncEngine(store, heldHashes: _heldOnDisk).run(sc, initiator: initiator);
     } finally {
       _suppressDirty--;
     }
+  }
+
+  /// Hashes of attachments whose bytes are actually stored on this device.
+  Set<String> _heldOnDisk() {
+    final f = files;
+    if (f == null) return const {};
+    return {for (final h in store.allAttachmentHashes()) if (f.has(h)) h};
   }
 
   // ------------------------------------------------------------ incoming
@@ -339,7 +380,13 @@ class SyncService {
     _incoming++;
     _emitStatus();
     try {
-      if (remote.mode == HandshakeMode.sync) {
+      if (remote.mode == HandshakeMode.fetch) {
+        try {
+          await serveAttachment(sc, files);
+        } finally {
+          await sc.close();
+        }
+      } else if (remote.mode == HandshakeMode.sync) {
         store.updatePeerSeen(remote.deviceId, address: sc.remoteAddress);
         await _runEngine(sc, initiator: false);
         _failures[remote.deviceId] = 0;

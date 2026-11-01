@@ -37,7 +37,10 @@ class SyncProtocolException implements Exception {
 class SyncEngine {
   final NoteStore store;
   final int batchSize;
-  SyncEngine(this.store, {this.batchSize = 100});
+  final Set<String> Function() heldHashes;
+  SyncEngine(this.store, {this.batchSize = 100, this.heldHashes = _noHashes});
+
+  static Set<String> _noHashes() => const {};
 
   /// Runs a session. The channel is always closed afterwards.
   Future<SyncStats> run(SecureChannel ch, {required bool initiator}) async {
@@ -59,16 +62,21 @@ class SyncEngine {
       throw SyncProtocolException('peer $peerId is not paired');
     }
     final stats = SyncStats();
+    final held = heldHashes().toList();
     String peerEpoch;
     if (initiator) {
-      await ch.send({'t': 'start', 'epoch': store.epoch});
-      peerEpoch = _expect(await ch.receive(), 'start')['epoch'] as String;
+      await ch.send({'t': 'start', 'epoch': store.epoch, 'held': held});
+      final s = _expect(await ch.receive(), 'start');
+      peerEpoch = s['epoch'] as String;
+      store.setFileHolders(peerId, _strings(s['held']));
       await _push(ch, peerId, stats);
       await _pull(ch, peerId, peerEpoch, stats);
       await ch.send({'t': 'bye'});
     } else {
-      peerEpoch = _expect(await ch.receive(), 'start')['epoch'] as String;
-      await ch.send({'t': 'start', 'epoch': store.epoch});
+      final s = _expect(await ch.receive(), 'start');
+      peerEpoch = s['epoch'] as String;
+      store.setFileHolders(peerId, _strings(s['held']));
+      await ch.send({'t': 'start', 'epoch': store.epoch, 'held': held});
       await _pull(ch, peerId, peerEpoch, stats);
       await _push(ch, peerId, stats);
       _expect(await ch.receive(), 'bye');
@@ -76,6 +84,8 @@ class SyncEngine {
     store.updatePeerSeen(peerId, synced: true);
     return stats;
   }
+
+  static List<String> _strings(Object? v) => [for (final x in (v as List?) ?? const []) x as String];
 
   Future<void> _push(SecureChannel ch, String peerId, SyncStats stats) async {
     var cursor = (_expect(await ch.receive(), 'want')['cursor'] as num).toInt();

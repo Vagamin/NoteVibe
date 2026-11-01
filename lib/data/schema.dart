@@ -69,6 +69,13 @@ const _migrations = <String>[
   );
   CREATE INDEX attachments_note ON attachments(note_id);
   ''',
+  '''
+  CREATE TABLE file_holders (
+    sha256    TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    PRIMARY KEY (sha256, device_id)
+  );
+  ''',
 ];
 
 int get schemaVersion => _migrations.length;

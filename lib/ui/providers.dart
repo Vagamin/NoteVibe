@@ -71,7 +71,12 @@ class AppServices {
     final store = NoteStore.open(p.join(dir.path, 'notevibe.db'), deviceId: deviceId);
     final name = store.getSetting('device_name') ?? _defaultName();
     final identity = await DeviceIdentity.loadOrCreate(keyStore, deviceId, name);
-    final sync = SyncService(store: store, peerKeys: PeerKeys(keyStore), identity: identity);
+    final sync = SyncService(
+      store: store,
+      peerKeys: PeerKeys(keyStore),
+      identity: identity,
+      files: AttachmentStorage(Directory(dir.path)),
+    );
     try {
       await sync.start();
     } catch (e) {

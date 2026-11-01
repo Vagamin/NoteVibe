@@ -8,7 +8,7 @@ import 'keys.dart';
 
 const protocolVersion = 1;
 
-enum HandshakeMode { sync, pairQr, pairCode }
+enum HandshakeMode { sync, pairQr, pairCode, fetch }
 
 class HandshakeException implements Exception {
   final String code;
@@ -272,7 +272,7 @@ Future<SecureChannel> _respond(
   final iS = _b64(m1['s']);
 
   List<int>? secret;
-  if (mode == HandshakeMode.sync) {
+  if (mode == HandshakeMode.sync || mode == HandshakeMode.fetch) {
     final known = await policy.peerKey(iId);
     if (known == null) await reject(HsError.unknownPeer, 'device is not paired');
     if (!_eq(known, iS)) await reject(HsError.badKey, 'device key mismatch');
@@ -319,6 +319,7 @@ Future<List<int>> _psk(
     HandshakeMode mode, List<int>? secret, List<int> transcript, CodeKdf kdf) async {
   switch (mode) {
     case HandshakeMode.sync:
+    case HandshakeMode.fetch:
       return const [];
     case HandshakeMode.pairQr:
       return secret!;

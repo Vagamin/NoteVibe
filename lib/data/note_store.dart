@@ -582,8 +582,24 @@ class NoteStore {
 
   void removePeer(String deviceId) {
     _db.execute('DELETE FROM peers WHERE device_id = ?', [deviceId]);
+    _db.execute('DELETE FROM file_holders WHERE device_id = ?', [deviceId]);
     _notify();
   }
+
+  /// Replaces the set of files that [deviceId] reports as stored locally.
+  void setFileHolders(String deviceId, Iterable<String> hashes) {
+    _tx(() {
+      _db.execute('DELETE FROM file_holders WHERE device_id = ?', [deviceId]);
+      for (final h in hashes) {
+        _db.execute('INSERT OR IGNORE INTO file_holders (sha256, device_id) VALUES (?, ?)', [h, deviceId]);
+      }
+    });
+    _notify();
+  }
+
+  /// Other paired devices that reported having the file [sha256].
+  bool hasRemoteHolder(String sha256) =>
+      _db.select('SELECT 1 FROM file_holders WHERE sha256 = ? LIMIT 1', [sha256]).isNotEmpty;
 
   // ---------------------------------------------------------------- settings
 

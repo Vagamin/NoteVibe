@@ -91,7 +91,7 @@ class PairingOffer {
     return switch (mode) {
       HandshakeMode.pairQr => token,
       HandshakeMode.pairCode => codeRevoked ? null : utf8.encode(code),
-      HandshakeMode.sync => null,
+      HandshakeMode.sync || HandshakeMode.fetch => null,
     };
   }
 }

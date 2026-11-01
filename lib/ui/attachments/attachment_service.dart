@@ -8,12 +8,14 @@ import 'package:path/path.dart' as p;
 import '../../data/attachment_storage.dart';
 import '../../data/note_store.dart';
 import '../../domain/attachment.dart';
+import '../../sync/sync_service.dart';
 
 /// Adds, opens and saves attachments. The UI calls only this class.
 class AttachmentService {
   final NoteStore store;
   final AttachmentStorage files;
-  AttachmentService(this.store, this.files);
+  final SyncService sync;
+  AttachmentService(this.store, this.files, this.sync);
 
   /// Lets the user pick files and attaches them to [noteId]. Returns the
   /// number of attached files; files that are too big are skipped with a message.
@@ -103,6 +105,18 @@ class AttachmentService {
       throw const FileSystemException('Файл повреждён (контрольная сумма не совпадает)');
     }
     return bytes;
+  }
+
+  /// Downloads the bytes from a paired device (the attachment is missing here).
+  Future<void> download(Attachment a) => sync.fetchAttachment(a);
+
+  /// Deletes the local copy but keeps the metadata. Refused unless another
+  /// paired device has the file, so the bytes are never lost.
+  Future<void> freeSpace(Attachment a) async {
+    if (!store.hasRemoteHolder(a.sha256)) {
+      throw const FileSystemException('Нельзя освободить: копии на других устройствах нет');
+    }
+    await files.delete(a.sha256);
   }
 
   void remove(Attachment a) {

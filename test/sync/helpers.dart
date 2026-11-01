@@ -27,7 +27,7 @@ class TestPolicy extends HandshakePolicy {
   List<int>? pairingSecret(HandshakeMode mode) => switch (mode) {
         HandshakeMode.pairQr => qrToken,
         HandshakeMode.pairCode => code == null ? null : utf8.encode(code!),
-        HandshakeMode.sync => null,
+        HandshakeMode.sync || HandshakeMode.fetch => null,
       };
 
   @override

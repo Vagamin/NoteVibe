@@ -7,13 +7,24 @@ import 'attachment_service.dart';
 
 final attachmentServiceProvider = Provider<AttachmentService>((ref) {
   final s = ref.watch(servicesProvider);
-  return AttachmentService(s.store, s.attachments);
+  return AttachmentService(s.store, s.attachments, s.sync);
 });
 
-/// Attachments of one note: add, open, save a copy, delete.
+/// Ids of attachments being downloaded right now.
+class DownloadingNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => <String>{};
+
+  void add(String id) => state = {...state, id};
+  void remove(String id) => state = {...state}..remove(id);
+}
+
+final downloadingProvider = NotifierProvider<DownloadingNotifier, Set<String>>(DownloadingNotifier.new);
+
+/// Attachments of one note: add, open, download, save a copy, delete.
 ///
 /// Status dot: green = file is on this device, grey = file is missing here.
-/// Missing files come from another device; downloading them is the next stage.
+/// Grey files can be downloaded from another paired device.
 class AttachmentsPanel extends ConsumerWidget {
   final String noteId;
   const AttachmentsPanel({super.key, required this.noteId});
@@ -25,6 +36,7 @@ class AttachmentsPanel extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     // Rebuild when attachments or notes change.
     ref.watch(storeChangesProvider);
+    final busy = ref.watch(downloadingProvider);
     final items = store.attachmentsFor(noteId);
 
     return Column(
@@ -47,12 +59,30 @@ class AttachmentsPanel extends ConsumerWidget {
           _AttachmentTile(
             attachment: a,
             present: svc.files.has(a.sha256),
+            remoteHeld: store.hasRemoteHolder(a.sha256),
+            downloading: busy.contains(a.id),
             onOpen: () => _run(context, () => svc.open(a)),
+            onDownload: () => _download(context, ref, svc, a),
+            onFreeSpace: () => _run(context, () => svc.freeSpace(a)),
             onSave: () => _saveCopy(context, svc, a),
             onDelete: () => _confirmRemove(context, svc, a),
           ),
       ],
     );
+  }
+
+  Future<void> _download(BuildContext context, WidgetRef ref, AttachmentService svc, Attachment a) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final downloads = ref.read(downloadingProvider.notifier);
+    downloads.add(a.id);
+    try {
+      await svc.download(a);
+      messenger.showSnackBar(SnackBar(content: Text('Загружено: ${a.name}')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      downloads.remove(a.id);
+    }
   }
 
   Future<void> _add(BuildContext context, AttachmentService svc) async {
@@ -107,14 +137,22 @@ class AttachmentsPanel extends ConsumerWidget {
 class _AttachmentTile extends StatelessWidget {
   final Attachment attachment;
   final bool present;
+  final bool remoteHeld;
+  final bool downloading;
   final VoidCallback onOpen;
+  final VoidCallback onDownload;
+  final VoidCallback onFreeSpace;
   final VoidCallback onSave;
   final VoidCallback onDelete;
 
   const _AttachmentTile({
     required this.attachment,
     required this.present,
+    required this.remoteHeld,
+    required this.downloading,
     required this.onOpen,
+    required this.onDownload,
+    required this.onFreeSpace,
     required this.onSave,
     required this.onDelete,
   });
@@ -122,14 +160,24 @@ class _AttachmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final dotColor = present ? Colors.green : scheme.outline;
+    final dotColor = present
+        ? Colors.green
+        : (remoteHeld ? Colors.red : scheme.outline);
+    final dotMessage = present
+        ? 'Файл есть на этом устройстве'
+        : remoteHeld
+            ? 'Файл есть на другом устройстве'
+            : 'Файла нет ни на одном устройстве';
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: present ? onOpen : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(children: [
-          Icon(attachment.isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(attachment.isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -140,12 +188,24 @@ class _AttachmentTile extends StatelessWidget {
               ],
             ),
           ),
-          Tooltip(
-            message: present ? 'Файл есть на этом устройстве' : 'Файла нет на этом устройстве',
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          const SizedBox(width: 8),
+          if (!present && downloading)
+            const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+          else if (!present)
+            IconButton(
+              tooltip: 'Загрузить с другого устройства',
+              icon: const Icon(Icons.download_outlined),
+              onPressed: onDownload,
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Tooltip(
+              message: dotMessage,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+              ),
             ),
           ),
           PopupMenuButton<String>(
@@ -154,11 +214,14 @@ class _AttachmentTile extends StatelessWidget {
               switch (v) {
                 case 'save':
                   onSave();
+                case 'free':
+                  onFreeSpace();
                 case 'delete':
                   onDelete();
               }
             },
             itemBuilder: (_) => [
+              if (present && remoteHeld) const PopupMenuItem(value: 'free', child: Text('Освободить место')),
               if (present) const PopupMenuItem(value: 'save', child: Text('Сохранить копию')),
               const PopupMenuItem(value: 'delete', child: Text('Удалить')),
             ],

@@ -297,13 +297,14 @@ class SyncService {
     if (addr == null) return;
     _active.add(p.deviceId);
     _emitStatus();
+    final logAtStart = store.logSeq;
     try {
       await _syncWith(p, addr.$1, addr.$2);
       _failures[p.deviceId] = 0;
       _backoffUntil.remove(p.deviceId);
       _lastError = null;
       _lastSync = DateTime.now();
-      _dirty = false;
+      _dirty = store.hasLocalChangeAfter(logAtStart);
     } catch (e) {
       final n = (_failures[p.deviceId] ?? 0) + 1;
       _failures[p.deviceId] = n;
@@ -313,6 +314,7 @@ class SyncService {
     } finally {
       _active.remove(p.deviceId);
       _emitStatus();
+      if (_dirty && autoSync && _started) _scheduleSync();
     }
   }
 
@@ -394,12 +396,13 @@ class SyncService {
         }
       } else if (remote.mode == HandshakeMode.sync) {
         store.updatePeerSeen(remote.deviceId, address: sc.remoteAddress);
+        final logAtStart = store.logSeq;
         await _runEngine(sc, initiator: false);
         _failures[remote.deviceId] = 0;
         _backoffUntil.remove(remote.deviceId);
         _lastSync = DateTime.now();
         _lastError = null;
-        _dirty = false;
+        _dirty = store.hasLocalChangeAfter(logAtStart);
       } else {
         _offer?.used = true;
         await _trust(remote.deviceId, remote.name, remote.staticKey);
@@ -418,6 +421,7 @@ class SyncService {
     } finally {
       _incoming--;
       _emitStatus();
+      if (_dirty && autoSync && _started) _scheduleSync();
     }
   }
 

@@ -324,6 +324,14 @@ class NoteStore {
   /// Notes changed after [afterSeq], ordered by seq. Only the latest state of
   /// each note is returned, so a note edited many times is sent once.
   /// Versions received from [excludeSrc] are skipped (no echo).
+  /// Current position of the change log.
+  int get logSeq =>
+      (_db.select('SELECT COALESCE(MAX(seq), 0) AS m FROM change_log').first['m'] as int);
+
+  /// Whether this device recorded a local edit after [seq].
+  bool hasLocalChangeAfter(int seq) =>
+      _db.select('SELECT 1 FROM change_log WHERE seq > ? AND device = ? LIMIT 1', [seq, deviceId]).isNotEmpty;
+
   ChangeBatch changesSince(int afterSeq, {int limit = 100, String? excludeSrc}) {
     final rs = _db.select(
       'SELECT $_noteCols, seq, src, dismissed FROM notes WHERE seq > ? ORDER BY seq LIMIT ?',

@@ -42,6 +42,7 @@ void main() {
   tearDown(() async {
     await pc.dispose();
     await phone.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
     pc.store.dispose();
     phone.store.dispose();
   });

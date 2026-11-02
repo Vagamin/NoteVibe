@@ -35,9 +35,11 @@ class NoteStore {
 
   static NoteStore open(String path, {required String deviceId, DateTime Function()? now}) {
     final db = sqlite3.open(path);
+    db.execute('PRAGMA foreign_keys=ON;');
+    migrate(db, backupPath: path);
     db.execute('PRAGMA journal_mode=WAL;');
     db.execute('PRAGMA synchronous=NORMAL;');
-    return NoteStore._init(db, deviceId, now);
+    return NoteStore._(db, deviceId, now ?? DateTime.now);
   }
 
   static NoteStore inMemory({required String deviceId, DateTime Function()? now}) =>

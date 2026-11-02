@@ -1,7 +1,15 @@
+import 'dart:io';
+
 import 'package:sqlite3/sqlite3.dart';
 
 /// Schema migrations, applied in order. `PRAGMA user_version` stores the
 /// number of migrations already applied.
+///
+/// RULES (a shipped migration is never edited, moved or removed):
+/// - Only append new migrations to the END of this list.
+/// - Never insert in the middle: version numbers would shift and users' databases
+///   would be marked as migrated when they are not (this caused 1.2.1–1.2.3 breakage).
+/// - Changing an old entry is forbidden; `test/data/migrate_test.dart` checks this.
 const _migrations = <String>[
   '''
   CREATE TABLE notes (
@@ -94,8 +102,14 @@ const _migrations = <String>[
 
 int get schemaVersion => _migrations.length;
 
-void migrate(Database db) {
+/// Read-only view of the migration list for tests.
+List<String> migrationsForTest() => List.unmodifiable(_migrations);
+
+void migrate(Database db, {String? backupPath}) {
   final current = db.select('PRAGMA user_version').first.values.first as int;
+  if (backupPath != null && current < _migrations.length && current > 0) {
+    _backup(db, '$backupPath.bak-v$current');
+  }
   for (var v = current; v < _migrations.length; v++) {
     db.execute('BEGIN');
     try {
@@ -108,6 +122,15 @@ void migrate(Database db) {
     }
   }
   _repairSchema(db);
+}
+
+/// Copies the database before a migration, so a failed upgrade never loses data.
+/// Keeps the copy only if it does not exist yet.
+void _backup(Database db, String target) {
+  final f = File(target);
+  if (f.existsSync()) return;
+  final escaped = target.replaceAll("'", "''");
+  db.execute("VACUUM INTO '$escaped'");
 }
 
 void _applyMigration(Database db, String sql) {

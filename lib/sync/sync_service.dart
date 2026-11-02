@@ -101,7 +101,11 @@ class SyncService {
 
   set autoSync(bool v) {
     store.setSetting('auto_sync', v ? 'true' : 'false');
-    if (v) _scheduleSync(immediate: true);
+    if (v) {
+      _scheduleSync(immediate: true);
+    } else {
+      _debounceTimer?.cancel();
+    }
     _emitStatus();
   }
 
@@ -266,7 +270,9 @@ class SyncService {
   void _scheduleSync({bool immediate = false}) {
     if (!autoSync || !_started) return;
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(immediate ? Duration.zero : debounce, () => syncNow());
+    _debounceTimer = Timer(immediate ? Duration.zero : debounce, () {
+      if (autoSync) syncNow();
+    });
   }
 
   /// Syncs with all paired devices that have a known address.
@@ -399,6 +405,11 @@ class SyncService {
         await _trust(remote.deviceId, remote.name, remote.staticKey);
         store.updatePeerSeen(remote.deviceId, address: sc.remoteAddress);
         await sc.send({'t': 'paired', 'port': port});
+        try {
+          final theirs = await sc.receive();
+          store.updatePeerSeen(remote.deviceId,
+              address: sc.remoteAddress, port: (theirs['port'] as num?)?.toInt());
+        } catch (_) {}
         await sc.close();
         if (!_offerEvents.isClosed) _offerEvents.add(remote.name);
       }
@@ -469,6 +480,7 @@ class SyncService {
     final r = sc.remote;
     await _trust(r.deviceId, r.name, r.staticKey);
     store.updatePeerSeen(r.deviceId, address: host, port: (m['port'] as num?)?.toInt());
+    await sc.send({'t': 'paired', 'port': port}).catchError((_) {});
     await sc.close();
     _failures.remove(r.deviceId);
     _scheduleSync(immediate: true);

@@ -97,6 +97,7 @@ void main() {
     await waitFor(() => phone.currentStatus.state == SyncState.synced);
 
     phone.autoSync = false;
+    pc.autoSync = false;
     phone.store.createNote(title: 'not yet');
     await Future<void>.delayed(const Duration(milliseconds: 300));
     expect(pc.store.listNotes(), isEmpty);

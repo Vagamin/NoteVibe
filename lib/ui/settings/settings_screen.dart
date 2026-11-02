@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../app_version.dart';
 import '../../sync/sync_service.dart';
+import '../../update/update_service.dart';
 import '../attachments/attachment_service.dart';
 import '../providers.dart';
 import 'update_card.dart';
@@ -84,7 +85,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text('Список заметок', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           ListTile(
-            contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.view_headline_outlined),
             title: const Text('Сколько показывать в списке'),
             subtitle: Text(ref.watch(previewLinesProvider).label),
@@ -108,7 +108,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           Text('Синхронизация', style: Theme.of(context).textTheme.titleSmall),
           SwitchListTile(
-            contentPadding: EdgeInsets.zero,
             title: const Text('Автоматическая синхронизация'),
             value: status.autoSync,
             onChanged: (v) => sync.autoSync = v,
@@ -132,8 +131,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
           SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             title: const Text('Скачивать файлы автоматически'),
             subtitle: const Text('Выключено: файлы скачиваются кнопкой в заметке'),
             value: sync.autoDownloadFiles,
@@ -143,8 +140,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
           ),
           ListTile(
-            contentPadding: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             leading: const Icon(Icons.folder_outlined),
             title: const Text('Папка для сохранения файлов'),
             subtitle: Text(
@@ -166,12 +161,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           const SizedBox(height: 24),
+          Text('О программе', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
           Text(
-            'NoteVibe $appVersion\n\n'
-            'NoteVibe хранит заметки только на ваших устройствах (SQLite). '
-            'Синхронизация идёт напрямую по локальной сети с шифрованием; '
-            'ключи сопряжения хранятся в защищённом хранилище ОС.',
-            style: Theme.of(context).textTheme.bodySmall,
+            'NoteVibe — блокнот с синхронизацией напрямую по локальной сети. '
+            'Заметки и вложения не уходят в облако и не хранятся на сервере. '
+            'Передача шифруется, ключи хранятся в защищённом хранилище ОС.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text('Версия $appVersion', style: Theme.of(context).textTheme.bodySmall),
+              TextButton.icon(
+                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                onPressed: () => UpdateService.openUrl('https://github.com/Vagamin/NoteVibe'),
+                icon: const Icon(Icons.code, size: 16),
+                label: const Text('GitHub'),
+              ),
+            ],
           ),
         ],
       ),

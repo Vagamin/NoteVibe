@@ -53,7 +53,10 @@ class AppTheme {
         foregroundColor: scheme.onPrimary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
-      listTileTheme: const ListTileThemeData(minVerticalPadding: 12),
+      listTileTheme: ListTileThemeData(
+        minVerticalPadding: 12,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
       dividerTheme: DividerThemeData(color: scheme.outlineVariant.withValues(alpha: 0.4)),
     );
   }

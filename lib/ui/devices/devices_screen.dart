@@ -55,7 +55,6 @@ class DevicesScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 8),
                 SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
                   title: const Text('Автоматическая синхронизация'),
                   subtitle: const Text('В одной Wi‑Fi/LAN-сети, без интернета и облака'),
                   value: status.autoSync,

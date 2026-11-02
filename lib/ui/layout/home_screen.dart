@@ -119,7 +119,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         icon: const Icon(Icons.archive_outlined),
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ArchiveScreen())),
       ),
+      const SizedBox(width: 8),
       SyncStatusChip(status: status, compact: !wide, onTap: () => _onStatusTap(status)),
+      const SizedBox(width: 8),
       IconButton(
         tooltip: 'Устройства',
         icon: const Icon(Icons.devices_outlined),

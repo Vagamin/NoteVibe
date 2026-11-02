@@ -181,6 +181,9 @@ class SyncService {
 
   Future<void> dispose() async {
     await stop();
+    while (_active.isNotEmpty || _incoming > 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
     await _statusCtl.close();
     await _discoveredCtl.close();
     await _offerEvents.close();
@@ -290,6 +293,7 @@ class SyncService {
   bool _isDiscovered(String id) => currentDiscovered.any((d) => d.deviceId == id);
 
   Future<void> _syncPeerSafe(Peer p) async {
+    if (!_started) return;
     if (_active.contains(p.deviceId)) return;
     final until = _backoffUntil[p.deviceId];
     if (until != null && DateTime.now().isBefore(until)) return;

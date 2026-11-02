@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -60,6 +62,7 @@ class AttachmentsPanel extends ConsumerWidget {
             attachment: a,
             present: svc.files.has(a.sha256),
             remoteHeld: store.hasRemoteHolder(a.sha256),
+            hasSavedCopy: svc.savedPath(a) != null,
             downloading: busy.contains(a.id),
             onOpen: () => _run(context, () => svc.open(a)),
             onDownload: () => _download(context, ref, svc, a),
@@ -139,6 +142,7 @@ class _AttachmentTile extends StatelessWidget {
   final Attachment attachment;
   final bool present;
   final bool remoteHeld;
+  final bool hasSavedCopy;
   final bool downloading;
   final VoidCallback onOpen;
   final VoidCallback onDownload;
@@ -151,6 +155,7 @@ class _AttachmentTile extends StatelessWidget {
     required this.attachment,
     required this.present,
     required this.remoteHeld,
+    required this.hasSavedCopy,
     required this.downloading,
     required this.onOpen,
     required this.onDownload,
@@ -163,6 +168,7 @@ class _AttachmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isDesktop = Platform.isWindows;
     final dotColor = present
         ? Colors.green
         : (remoteHeld ? Colors.red : scheme.outline);
@@ -217,9 +223,9 @@ class _AttachmentTile extends StatelessWidget {
           const SizedBox(width: 8),
           if (!present && downloading)
             const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          else if (!present)
+          else if (!present && remoteHeld)
             IconButton(
-              tooltip: 'Загрузить с другого устройства',
+              tooltip: 'Скачать с другого устройства',
               icon: const Icon(Icons.download_outlined),
               onPressed: onDownload,
             ),
@@ -227,6 +233,8 @@ class _AttachmentTile extends StatelessWidget {
             tooltip: 'Действия',
             onSelected: (v) {
               switch (v) {
+                case 'open':
+                  onOpen();
                 case 'save':
                   onSave();
                 case 'location':
@@ -238,10 +246,12 @@ class _AttachmentTile extends StatelessWidget {
               }
             },
             itemBuilder: (_) => [
-              if (present && remoteHeld) const PopupMenuItem(value: 'free', child: Text('Освободить место')),
+              if (present) const PopupMenuItem(value: 'open', child: Text('Открыть файл')),
               if (present) const PopupMenuItem(value: 'save', child: Text('Сохранить копию')),
-              if (present) const PopupMenuItem(value: 'location', child: Text('Открыть расположение')),
-              const PopupMenuItem(value: 'delete', child: Text('Удалить')),
+              if (isDesktop && hasSavedCopy)
+                const PopupMenuItem(value: 'location', child: Text('Показать в папке')),
+              if (present && remoteHeld) const PopupMenuItem(value: 'free', child: Text('Освободить место')),
+              const PopupMenuItem(value: 'delete', child: Text('Удалить вложение')),
             ],
           ),
         ]),
@@ -249,3 +259,4 @@ class _AttachmentTile extends StatelessWidget {
     );
   }
 }
+

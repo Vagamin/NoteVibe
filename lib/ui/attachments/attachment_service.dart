@@ -78,20 +78,19 @@ class AttachmentService {
     return target?.toFilePath();
   }
 
-  /// Opens the folder that holds the saved copy, with the file selected on
-  /// desktop. Android cannot open folders from the app, so it explains instead.
-  Future<void> openLocation(Attachment a) async {
+  /// Path of the saved copy, or null when there is no copy on disk.
+  String? savedPath(Attachment a) {
     final saved = store.savedCopyPath(a.sha256);
-    if (saved == null || !File(saved).existsSync()) {
-      throw const FileSystemException('Сначала сохраните копию файла');
-    }
-    if (Platform.isWindows) {
-      await Process.run('explorer.exe', ['/select,', saved]);
-      return;
-    }
-    throw FileSystemException('На телефоне папку открыть нельзя. Файл сохранён здесь: $saved');
+    if (saved == null || !File(saved).existsSync()) return null;
+    return saved;
   }
 
+  /// Opens Explorer with the saved copy selected (Windows only).
+  Future<void> openLocation(Attachment a) async {
+    final saved = savedPath(a);
+    if (saved == null) throw const FileSystemException('Копия файла не найдена');
+    if (Platform.isWindows) await Process.run('explorer.exe', ['/select,', saved]);
+  }
 
   static const saveDirSetting = 'attachments_dir';
 

@@ -527,6 +527,11 @@ class NoteStore {
     if (row.isNotEmpty) touchNote(row.first['note_id'] as String);
   }
 
+  List<Attachment> allAttachments() => _db
+      .select('SELECT * FROM attachments ORDER BY created')
+      .map(_rowToAttachment)
+      .toList();
+
   Set<String> allAttachmentHashes() =>
       _db.select('SELECT DISTINCT sha256 FROM attachments').map((r) => r['sha256'] as String).toSet();
 

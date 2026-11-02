@@ -309,6 +309,7 @@ class SyncService {
       _lastError = null;
       _lastSync = DateTime.now();
       _dirty = store.hasLocalChangeAfter(logAtStart);
+      await _autoFetchFiles();
     } catch (e) {
       final n = (_failures[p.deviceId] ?? 0) + 1;
       _failures[p.deviceId] = n;
@@ -330,6 +331,23 @@ class SyncService {
         mode: HandshakeMode.sync, expectedId: p.deviceId, expectedKey: key);
     store.updatePeerSeen(p.deviceId, address: host, port: port);
     await _runEngine(sc, initiator: true);
+  }
+
+  static const autoDownloadSetting = 'attachments_auto';
+
+  bool get autoDownloadFiles => store.getSetting(autoDownloadSetting) == 'true';
+
+  /// With automatic download on, fetches files that another device reported
+  /// and this device lacks. Failures are ignored; the manual button stays.
+  Future<void> _autoFetchFiles() async {
+    if (files == null || !autoDownloadFiles) return;
+    for (final a in store.allAttachments()) {
+      if (!_started) return;
+      if (files!.has(a.sha256) || !store.hasRemoteHolder(a.sha256)) continue;
+      try {
+        await fetchAttachment(a);
+      } catch (_) {}
+    }
   }
 
   /// Downloads the bytes of [a] from the first paired device that has them.
@@ -407,6 +425,7 @@ class SyncService {
         _lastSync = DateTime.now();
         _lastError = null;
         _dirty = store.hasLocalChangeAfter(logAtStart);
+        await _autoFetchFiles();
       } else {
         _offer?.used = true;
         await _trust(remote.deviceId, remote.name, remote.staticKey);

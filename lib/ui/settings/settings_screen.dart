@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../app_version.dart';
+import '../../sync/sync_service.dart';
 import '../attachments/attachment_service.dart';
 import '../providers.dart';
 import 'update_card.dart';
@@ -130,6 +131,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const UpdateCard(),
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Скачивать файлы автоматически'),
+            subtitle: const Text('Выключено: файлы скачиваются кнопкой в заметке'),
+            value: sync.autoDownloadFiles,
+            onChanged: (v) {
+              ref.read(storeProvider).setSetting(SyncService.autoDownloadSetting, v ? 'true' : 'false');
+              setState(() {});
+            },
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.folder_outlined),

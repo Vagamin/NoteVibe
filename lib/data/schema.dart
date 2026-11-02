@@ -85,7 +85,7 @@ const _migrations = <String>[
   CREATE INDEX notes_archived ON notes(deleted, archived, updated);
   ''',
   '''
-  CREATE TABLE saved_copies (
+  CREATE TABLE IF NOT EXISTS saved_copies (
     sha256 TEXT PRIMARY KEY,
     path   TEXT NOT NULL
   );
@@ -99,7 +99,15 @@ void migrate(Database db) {
   for (var v = current; v < _migrations.length; v++) {
     db.execute('BEGIN');
     try {
-      db.execute(_migrations[v]);
+      for (final stmt in _migrations[v].split(';')) {
+        final s = stmt.trim();
+        if (s.isEmpty) continue;
+        final add = RegExp(r'^ALTER TABLE (\w+) ADD COLUMN (\w+)').firstMatch(s);
+        if (add != null && _hasColumn(db, add.group(1)!, add.group(2)!)) continue;
+        final idx = RegExp(r'^CREATE INDEX (\w+)').firstMatch(s);
+        if (idx != null && _hasIndex(db, idx.group(1)!)) continue;
+        db.execute(s);
+      }
       db.execute('PRAGMA user_version = ${v + 1}');
       db.execute('COMMIT');
     } catch (_) {
@@ -108,3 +116,9 @@ void migrate(Database db) {
     }
   }
 }
+
+bool _hasColumn(Database db, String table, String column) =>
+    db.select('PRAGMA table_info($table)').any((r) => r['name'] == column);
+
+bool _hasIndex(Database db, String name) =>
+    db.select("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?", [name]).isNotEmpty;

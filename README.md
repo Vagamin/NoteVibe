@@ -3,9 +3,10 @@
 Блокнот для Windows и Android. Заметки синхронизируются напрямую между вашими
 устройствами по домашней Wi-Fi сети. Облака и регистрации нет, передача шифруется.
 
-![NoteVibe на ПК](docs/screenshots/pc-main.png)
-
-<img src="docs/screenshots/1.jpg" alt="NoteVibe на Android" width="240">
+<p align="center">
+  <img src="docs/screenshots/pc-main.png" alt="NoteVibe на ПК" height="320">
+  <img src="docs/screenshots/1.jpg" alt="NoteVibe на Android" height="320">
+</p>
 
 [Последний релиз](https://github.com/Vagamin/NoteVibe/releases/latest) ·
 [Все версии](https://github.com/Vagamin/NoteVibe/releases)

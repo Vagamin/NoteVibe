@@ -27,12 +27,47 @@ final downloadingProvider = NotifierProvider<DownloadingNotifier, Set<String>>(D
 ///
 /// Status dot: green = file is on this device, grey = file is missing here.
 /// Grey files can be downloaded from another paired device.
-class AttachmentsPanel extends ConsumerWidget {
+class AttachmentsPanel extends ConsumerStatefulWidget {
   final String noteId;
   const AttachmentsPanel({super.key, required this.noteId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AttachmentsPanel> createState() => _AttachmentsPanelState();
+}
+
+class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
+  Set<String>? _selected;
+
+  void _toggle(String id) {
+    final s = {...?_selected};
+    if (!s.remove(id)) s.add(id);
+    setState(() => _selected = s);
+  }
+
+  Future<void> _bulkDelete(AttachmentService svc, List<Attachment> all) async {
+    final chosen = all.where((a) => _selected?.contains(a.id) ?? false).toList();
+    if (chosen.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Удалить вложения (${chosen.length})?'),
+        content: Text(chosen.map((a) => a.name).join('\n')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    for (final a in chosen) {
+      svc.remove(a);
+    }
+    setState(() => _selected = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final noteId = widget.noteId;
     final store = ref.watch(storeProvider);
     final svc = ref.watch(attachmentServiceProvider);
     final scheme = Theme.of(context).colorScheme;
@@ -40,18 +75,39 @@ class AttachmentsPanel extends ConsumerWidget {
     ref.watch(storeChangesProvider);
     final busy = ref.watch(downloadingProvider);
     final items = store.attachmentsFor(noteId);
+    final selecting = _selected != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(children: [
           Expanded(child: Text('Вложения', style: Theme.of(context).textTheme.titleSmall)),
-          TextButton.icon(
-            onPressed: () => _add(context, svc),
-            icon: const Icon(Icons.attach_file, size: 18),
-            label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Добавить', maxLines: 1, softWrap: false)),
-          ),
+          if (items.isNotEmpty && !selecting)
+            TextButton(
+              onPressed: () => setState(() => _selected = {}),
+              child: const Text('Выбрать'),
+            ),
+          if (selecting)
+            TextButton(
+              onPressed: () => setState(() => _selected = null),
+              child: const Text('Готово'),
+            ),
+          if (!selecting)
+            TextButton.icon(
+              onPressed: () => _add(context, svc),
+              icon: const Icon(Icons.attach_file, size: 18),
+              label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Добавить', maxLines: 1, softWrap: false)),
+            ),
         ]),
+        if (selecting)
+          Row(children: [
+            Expanded(child: Text('Выбрано: ${_selected!.length}')),
+            TextButton.icon(
+              onPressed: _selected!.isEmpty ? null : () => _bulkDelete(svc, items),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Удалить выбранные'),
+            ),
+          ]),
         if (items.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -64,18 +120,20 @@ class AttachmentsPanel extends ConsumerWidget {
             remoteHeld: store.hasRemoteHolder(a.sha256),
             hasSavedCopy: svc.savedPath(a) != null,
             downloading: busy.contains(a.id),
+            checked: selecting ? _selected!.contains(a.id) : null,
             onOpen: () => _run(context, () => svc.open(a)),
-            onDownload: () => _download(context, ref, svc, a),
+            onDownload: () => _download(context, svc, a),
             onFreeSpace: () => _run(context, () => svc.freeSpace(a)),
             onSave: () => _saveCopy(context, svc, a),
             onLocation: () => _run(context, () => svc.openLocation(a)),
             onDelete: () => _confirmRemove(context, svc, a),
+            onTapSelect: selecting ? () => _toggle(a.id) : null,
           ),
       ],
     );
   }
 
-  Future<void> _download(BuildContext context, WidgetRef ref, AttachmentService svc, Attachment a) async {
+  Future<void> _download(BuildContext context, AttachmentService svc, Attachment a) async {
     final messenger = ScaffoldMessenger.of(context);
     final downloads = ref.read(downloadingProvider.notifier);
     downloads.add(a.id);
@@ -92,7 +150,7 @@ class AttachmentsPanel extends ConsumerWidget {
   Future<void> _add(BuildContext context, AttachmentService svc) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final r = await svc.pickAndAttach(noteId);
+      final r = await svc.pickAndAttach(widget.noteId);
       if (r.failed.isNotEmpty) {
         messenger.showSnackBar(SnackBar(content: Text(r.failed.join('\n'))));
       }
@@ -144,6 +202,8 @@ class _AttachmentTile extends StatelessWidget {
   final bool remoteHeld;
   final bool hasSavedCopy;
   final bool downloading;
+  final bool? checked;
+  final VoidCallback? onTapSelect;
   final VoidCallback onOpen;
   final VoidCallback onDownload;
   final VoidCallback onFreeSpace;
@@ -157,6 +217,8 @@ class _AttachmentTile extends StatelessWidget {
     required this.remoteHeld,
     required this.hasSavedCopy,
     required this.downloading,
+    this.checked,
+    this.onTapSelect,
     required this.onOpen,
     required this.onDownload,
     required this.onFreeSpace,
@@ -179,10 +241,14 @@ class _AttachmentTile extends StatelessWidget {
             : 'Файла нет ни на одном устройстве';
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: present ? onOpen : null,
+      onTap: onTapSelect ?? (present ? onOpen : null),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(children: [
+          if (checked != null) ...[
+            Checkbox(value: checked, onChanged: (_) => onTapSelect?.call()),
+            const SizedBox(width: 4),
+          ],
           Tooltip(
             message: dotMessage,
             child: SizedBox(

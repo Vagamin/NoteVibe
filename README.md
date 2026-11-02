@@ -5,6 +5,8 @@
 
 ![NoteVibe на ПК](docs/screenshots/pc-main.png)
 
+<img src="docs/screenshots/1.jpg" alt="NoteVibe на Android" width="240">
+
 [Последний релиз](https://github.com/Vagamin/NoteVibe/releases/latest) ·
 [Все версии](https://github.com/Vagamin/NoteVibe/releases)
 

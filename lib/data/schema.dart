@@ -99,21 +99,46 @@ void migrate(Database db) {
   for (var v = current; v < _migrations.length; v++) {
     db.execute('BEGIN');
     try {
-      for (final stmt in _migrations[v].split(';')) {
-        final s = stmt.trim();
-        if (s.isEmpty) continue;
-        final add = RegExp(r'^ALTER TABLE (\w+) ADD COLUMN (\w+)').firstMatch(s);
-        if (add != null && _hasColumn(db, add.group(1)!, add.group(2)!)) continue;
-        final idx = RegExp(r'^CREATE INDEX (\w+)').firstMatch(s);
-        if (idx != null && _hasIndex(db, idx.group(1)!)) continue;
-        db.execute(s);
-      }
+      _applyMigration(db, _migrations[v]);
       db.execute('PRAGMA user_version = ${v + 1}');
       db.execute('COMMIT');
     } catch (_) {
       db.execute('ROLLBACK');
       rethrow;
     }
+  }
+  _repairSchema(db);
+}
+
+void _applyMigration(Database db, String sql) {
+  for (final stmt in sql.split(';')) {
+    final s = stmt.trim();
+    if (s.isEmpty) continue;
+    final add = RegExp(r'^ALTER TABLE (\w+) ADD COLUMN (\w+)').firstMatch(s);
+    if (add != null && _hasColumn(db, add.group(1)!, add.group(2)!)) continue;
+    final idx = RegExp(r'^CREATE INDEX (\w+)').firstMatch(s);
+    if (idx != null && _hasIndex(db, idx.group(1)!)) continue;
+    db.execute(s);
+  }
+}
+
+/// Adds columns and indexes that the recorded version says exist but are missing.
+/// A database can end up with `user_version` ahead of its real schema.
+void _repairSchema(Database db) {
+  final required = <String>[
+    'ALTER TABLE notes ADD COLUMN important INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE notes ADD COLUMN archived INTEGER NOT NULL DEFAULT 0',
+    'CREATE INDEX notes_important ON notes(deleted, important, updated)',
+    'CREATE INDEX notes_archived ON notes(deleted, archived, updated)',
+    'CREATE TABLE IF NOT EXISTS saved_copies (sha256 TEXT PRIMARY KEY, path TEXT NOT NULL)',
+  ];
+  db.execute('BEGIN');
+  try {
+    _applyMigration(db, required.join(';'));
+    db.execute('COMMIT');
+  } catch (_) {
+    db.execute('ROLLBACK');
+    rethrow;
   }
 }
 

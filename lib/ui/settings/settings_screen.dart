@@ -133,6 +133,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             title: const Text('Скачивать файлы автоматически'),
             subtitle: const Text('Выключено: файлы скачиваются кнопкой в заметке'),
             value: sync.autoDownloadFiles,
@@ -143,6 +144,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             leading: const Icon(Icons.folder_outlined),
             title: const Text('Папка для сохранения файлов'),
             subtitle: Text(

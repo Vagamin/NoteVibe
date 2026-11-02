@@ -60,3 +60,5 @@ key.properties
 android/local.properties
 # Android build output at the android level
 /android/build/
+
+demo-data/

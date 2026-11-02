@@ -64,6 +64,7 @@ class AttachmentService {
     if (custom != null && custom.isNotEmpty) {
       final target = _uniqueFile(p.join(custom, a.name));
       await target.writeAsBytes(bytes, flush: true);
+      store.setSavedCopy(a.sha256, target.path);
       return target.path;
     }
     final target = await FilePicker.saveFile(
@@ -73,8 +74,24 @@ class AttachmentService {
       dialogTitle: 'Сохранить файл',
       initialDirectory: defaultDownloadsDir,
     );
+    if (target != null) store.setSavedCopy(a.sha256, target.toFilePath());
     return target?.toFilePath();
   }
+
+  /// Opens the folder that holds the saved copy, with the file selected on
+  /// desktop. Android cannot open folders from the app, so it explains instead.
+  Future<void> openLocation(Attachment a) async {
+    final saved = store.savedCopyPath(a.sha256);
+    if (saved == null || !File(saved).existsSync()) {
+      throw const FileSystemException('Сначала сохраните копию файла');
+    }
+    if (Platform.isWindows) {
+      await Process.run('explorer.exe', ['/select,', saved]);
+      return;
+    }
+    throw FileSystemException('На телефоне папку открыть нельзя. Файл сохранён здесь: $saved');
+  }
+
 
   static const saveDirSetting = 'attachments_dir';
 

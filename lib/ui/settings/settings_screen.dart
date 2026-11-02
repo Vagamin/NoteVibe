@@ -80,6 +80,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             );
           }),
           const SizedBox(height: 24),
+          Text('Список заметок', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.view_headline_outlined),
+            title: const Text('Сколько показывать в списке'),
+            subtitle: Text(ref.watch(previewLinesProvider).label),
+            onTap: () async {
+              final picked = await showDialog<PreviewLines>(
+                context: context,
+                builder: (c) => SimpleDialog(
+                  title: const Text('Сколько показывать в списке'),
+                  children: [
+                    for (final p in PreviewLines.values)
+                      SimpleDialogOption(
+                        onPressed: () => Navigator.pop(c, p),
+                        child: Text(p.label),
+                      ),
+                  ],
+                ),
+              );
+              if (picked != null) ref.read(previewLinesProvider.notifier).set(picked);
+            },
+          ),
+          const SizedBox(height: 24),
           Text('Синхронизация', style: Theme.of(context).textTheme.titleSmall),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

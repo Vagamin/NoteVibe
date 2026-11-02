@@ -186,7 +186,12 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               child: Row(children: [
                 Expanded(child: toolbar),
                 IconButton(
-                  tooltip: 'Удалить',
+                  tooltip: note.important ? 'Снять отметку «важное»' : 'Отметить как важное',
+                  icon: Icon(note.important ? Icons.star : Icons.star_outline,
+                      color: note.important ? Colors.amber.shade700 : null),
+                  onPressed: () => _store.setImportant(widget.noteId, !note.important),
+                ),
+                IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: confirmDelete,
                 ),

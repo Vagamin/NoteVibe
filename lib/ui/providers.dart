@@ -118,6 +118,24 @@ class SearchQuery extends Notifier<String> {
 
 final searchQueryProvider = NotifierProvider<SearchQuery, String>(SearchQuery.new);
 
+/// Ids of notes picked for a bulk action. Null means selection mode is off.
+class NoteSelection extends Notifier<Set<String>?> {
+  @override
+  Set<String>? build() => null;
+
+  void start() => state = {};
+
+  void toggle(String id) {
+    final next = {...?state};
+    if (!next.remove(id)) next.add(id);
+    state = next;
+  }
+
+  void clear() => state = null;
+}
+
+final selectionProvider = NotifierProvider<NoteSelection, Set<String>?>(NoteSelection.new);
+
 final notesProvider = Provider<List<Note>>((ref) {
   ref.watch(storeChangesProvider);
   return ref.watch(storeProvider).listNotes(query: ref.watch(searchQueryProvider));
@@ -169,3 +187,30 @@ class ThemeModeSetting extends Notifier<ThemeMode> {
 }
 
 final themeModeProvider = NotifierProvider<ThemeModeSetting, ThemeMode>(ThemeModeSetting.new);
+
+/// How many lines of a note are shown in the list: 1 (title only), 2, 3 or full.
+enum PreviewLines {
+  titleOnly(1, 'Только заголовок'),
+  two(2, '2 строки'),
+  three(3, '3 строки'),
+  full(0, 'Вся заметка');
+
+  final int lines;
+  final String label;
+  const PreviewLines(this.lines, this.label);
+}
+
+class PreviewLinesSetting extends Notifier<PreviewLines> {
+  @override
+  PreviewLines build() {
+    final v = ref.watch(storeProvider).getSetting('preview_lines');
+    return PreviewLines.values.firstWhere((m) => m.name == v, orElse: () => PreviewLines.two);
+  }
+
+  void set(PreviewLines p) {
+    ref.read(storeProvider).setSetting('preview_lines', p.name);
+    state = p;
+  }
+}
+
+final previewLinesProvider = NotifierProvider<PreviewLinesSetting, PreviewLines>(PreviewLinesSetting.new);

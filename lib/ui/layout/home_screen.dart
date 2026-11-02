@@ -64,14 +64,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
   }
 
+  void _bulkImportant(Set<String> ids) {
+    final store = ref.read(storeProvider);
+    for (final id in ids) {
+      store.setImportant(id, true);
+    }
+    ref.read(selectionProvider.notifier).clear();
+  }
+
+  Future<void> _bulkDelete(Set<String> ids) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Удалить заметки (${ids.length})?'),
+        content: const Text('Заметки будут удалены на всех синхронизированных устройствах.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final selectedNote = ref.read(selectedNoteProvider);
+    ref.read(storeProvider).deleteNotes(ids);
+    if (selectedNote != null && ids.contains(selectedNote)) {
+      ref.read(selectedNoteProvider.notifier).select(null);
+    }
+    ref.read(selectionProvider.notifier).clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= kWideLayout;
     final sync = ref.watch(syncProvider);
     final status = ref.watch(syncStatusProvider).value ?? sync.currentStatus;
     final selected = ref.watch(selectedNoteProvider);
+    final selecting = ref.watch(selectionProvider);
 
     final actions = <Widget>[
+      if (selecting == null)
+        IconButton(
+          tooltip: 'Выбрать заметки',
+          icon: const Icon(Icons.checklist),
+          onPressed: () => ref.read(selectionProvider.notifier).start(),
+        ),
       SyncStatusChip(status: status, compact: !wide, onTap: () => _onStatusTap(status)),
       IconButton(
         tooltip: 'Устройства',
@@ -124,12 +160,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          appBar: AppBar(
-            title: const Text('NoteVibe'),
-            actions: actions,
-          ),
+          appBar: selecting != null
+              ? AppBar(
+                  leading: IconButton(
+                    tooltip: 'Отменить выбор',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => ref.read(selectionProvider.notifier).clear(),
+                  ),
+                  title: Text('Выбрано: ${selecting.length}'),
+                  actions: [
+                    IconButton(
+                      tooltip: selecting.isEmpty ? 'Нет выбранных' : 'Отметить важными',
+                      icon: const Icon(Icons.star_outline),
+                      onPressed: selecting.isEmpty ? null : () => _bulkImportant(selecting),
+                    ),
+                    IconButton(
+                      tooltip: 'Удалить выбранные',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: selecting.isEmpty ? null : () => _bulkDelete(selecting),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                )
+              : AppBar(
+                  title: const Text('NoteVibe'),
+                  actions: actions,
+                ),
           body: body,
-          floatingActionButton: wide
+          floatingActionButton: wide || selecting != null
               ? null
               : FloatingActionButton(
                   tooltip: 'Новая заметка',
@@ -178,6 +236,9 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
   Widget build(BuildContext context) {
     final noteId = widget.noteId;
     final status = ref.watch(syncStatusProvider).value ?? ref.read(syncProvider).currentStatus;
+    final note = ref.watch(storeProvider).getNote(noteId);
+    ref.watch(storeChangesProvider);
+    final important = note?.important ?? false;
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -185,6 +246,13 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
             status: status,
             compact: true,
             onTap: status.state == SyncState.conflict ? () => openConflicts(context, noteId) : null,
+          ),
+          IconButton(
+            tooltip: important ? 'Снять отметку «важное»' : 'Отметить как важное',
+            iconSize: 26,
+            icon: Icon(important ? Icons.star : Icons.star_outline,
+                color: important ? Colors.amber.shade700 : null),
+            onPressed: () => ref.read(storeProvider).setImportant(noteId, !important),
           ),
           IconButton(
             tooltip: 'Удалить',

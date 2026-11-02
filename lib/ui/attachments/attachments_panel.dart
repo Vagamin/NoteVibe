@@ -65,6 +65,7 @@ class AttachmentsPanel extends ConsumerWidget {
             onDownload: () => _download(context, ref, svc, a),
             onFreeSpace: () => _run(context, () => svc.freeSpace(a)),
             onSave: () => _saveCopy(context, svc, a),
+            onLocation: () => _run(context, () => svc.openLocation(a)),
             onDelete: () => _confirmRemove(context, svc, a),
           ),
       ],
@@ -143,6 +144,7 @@ class _AttachmentTile extends StatelessWidget {
   final VoidCallback onDownload;
   final VoidCallback onFreeSpace;
   final VoidCallback onSave;
+  final VoidCallback onLocation;
   final VoidCallback onDelete;
 
   const _AttachmentTile({
@@ -154,6 +156,7 @@ class _AttachmentTile extends StatelessWidget {
     required this.onDownload,
     required this.onFreeSpace,
     required this.onSave,
+    required this.onLocation,
     required this.onDelete,
   });
 
@@ -226,6 +229,8 @@ class _AttachmentTile extends StatelessWidget {
               switch (v) {
                 case 'save':
                   onSave();
+                case 'location':
+                  onLocation();
                 case 'free':
                   onFreeSpace();
                 case 'delete':
@@ -235,6 +240,7 @@ class _AttachmentTile extends StatelessWidget {
             itemBuilder: (_) => [
               if (present && remoteHeld) const PopupMenuItem(value: 'free', child: Text('Освободить место')),
               if (present) const PopupMenuItem(value: 'save', child: Text('Сохранить копию')),
+              if (present) const PopupMenuItem(value: 'location', child: Text('Открыть расположение')),
               const PopupMenuItem(value: 'delete', child: Text('Удалить')),
             ],
           ),

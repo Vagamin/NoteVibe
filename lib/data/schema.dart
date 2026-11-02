@@ -76,6 +76,16 @@ const _migrations = <String>[
     PRIMARY KEY (sha256, device_id)
   );
   ''',
+  '''
+  ALTER TABLE notes ADD COLUMN important INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX notes_important ON notes(deleted, important, updated);
+  ''',
+  '''
+  CREATE TABLE saved_copies (
+    sha256 TEXT PRIMARY KEY,
+    path   TEXT NOT NULL
+  );
+  ''',
 ];
 
 int get schemaVersion => _migrations.length;

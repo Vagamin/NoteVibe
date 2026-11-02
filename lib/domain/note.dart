@@ -22,6 +22,9 @@ class Note {
   final String lastDevice;
   final bool deleted;
 
+  /// User marked the note as important (shown on top, highlighted).
+  final bool important;
+
   /// Computed: there are unresolved conflicting versions for this note.
   final bool hasConflict;
 
@@ -35,6 +38,7 @@ class Note {
     required this.version,
     required this.lastDevice,
     this.deleted = false,
+    this.important = false,
     this.hasConflict = false,
   });
 
@@ -46,6 +50,7 @@ class Note {
     VersionVector? version,
     String? lastDevice,
     bool? deleted,
+    bool? important,
     bool? hasConflict,
   }) =>
       Note(
@@ -58,12 +63,16 @@ class Note {
         version: version ?? this.version,
         lastDevice: lastDevice ?? this.lastDevice,
         deleted: deleted ?? this.deleted,
+        important: important ?? this.important,
         hasConflict: hasConflict ?? this.hasConflict,
       );
 
   /// Whether user-visible data is identical (ignores metadata).
   bool sameDataAs(Note other) =>
-      title == other.title && content == other.content && deleted == other.deleted;
+      title == other.title &&
+      content == other.content &&
+      deleted == other.deleted &&
+      important == other.important;
 
   String get displayTitle {
     if (title.trim().isNotEmpty) return title.trim();
@@ -81,6 +90,7 @@ class Note {
         'vv': version.toJson(),
         'dev': lastDevice,
         'del': deleted,
+        'imp': important,
       };
 
   static Note fromWire(Map<String, dynamic> m) {
@@ -97,6 +107,7 @@ class Note {
       version: VersionVector.fromJson(m['vv']),
       lastDevice: m['dev'] as String? ?? '',
       deleted: m['del'] as bool? ?? false,
+      important: m['imp'] as bool? ?? false,
     );
   }
 

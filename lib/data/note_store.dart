@@ -76,7 +76,7 @@ class NoteStore {
   // ---------------------------------------------------------------- notes
 
   static const _noteCols =
-      'id, title, content, plain, created, updated, vv, dev, deleted, '
+      'id, title, content, plain, created, updated, vv, dev, deleted, important, '
       '(SELECT COUNT(*) FROM conflicts c WHERE c.note_id = notes.id) AS nconf';
 
   Note _rowToNote(Row r) => Note(
@@ -89,6 +89,7 @@ class NoteStore {
         version: VersionVector.decode(r['vv'] as String),
         lastDevice: r['dev'] as String,
         deleted: (r['deleted'] as int) != 0,
+        important: (r['important'] as int) != 0,
         hasConflict: ((r['nconf'] as int?) ?? 0) > 0,
       );
 
@@ -97,17 +98,34 @@ class NoteStore {
     return rs.isEmpty ? null : _rowToNote(rs.first);
   }
 
-  /// Lists non-deleted notes, newest first. [query] does a case-insensitive
-  /// substring search in title and text (Unicode-aware).
+  /// Lists non-deleted notes: important first, then newest. [query] does a
+  /// case-insensitive substring search in title and text (Unicode-aware).
   List<Note> listNotes({String query = ''}) {
     final q = query.trim().toLowerCase();
     final rs = q.isEmpty
-        ? _db.select('SELECT $_noteCols FROM notes WHERE deleted = 0 ORDER BY updated DESC')
+        ? _db.select('SELECT $_noteCols FROM notes WHERE deleted = 0 ORDER BY important DESC, updated DESC')
         : _db.select(
             'SELECT $_noteCols FROM notes WHERE deleted = 0 AND instr(search, ?) > 0 '
-            'ORDER BY updated DESC',
+            'ORDER BY important DESC, updated DESC',
             [q]);
     return rs.map(_rowToNote).toList();
+  }
+
+  /// Sets or clears the importance flag. It is a regular edit, so it syncs.
+  void setImportant(String id, bool value) {
+    _tx(() {
+      final cur = getNote(id);
+      if (cur == null || cur.deleted || cur.important == value) return;
+      final next = cur.copyWith(
+        important: value,
+        updatedAt: _now(),
+        version: cur.version.increment(deviceId),
+        lastDevice: deviceId,
+      );
+      final seq = _appendLog(id, 'upsert', next.version, deviceId);
+      _writeNote(next, seq);
+    });
+    _notify();
   }
 
   int _appendLog(String noteId, String op, VersionVector vv, String device) {
@@ -123,12 +141,12 @@ class NoteStore {
   void _writeNote(Note n, int seq, {List<String>? dismissed, String? src}) {
     dismissed ??= _dismissed(n.id);
     _db.execute(
-      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, seq, src, dismissed) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, seq, src, dismissed) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(id) DO UPDATE SET title=excluded.title, content=excluded.content, '
       'plain=excluded.plain, search=excluded.search, created=excluded.created, '
       'updated=excluded.updated, vv=excluded.vv, dev=excluded.dev, deleted=excluded.deleted, '
-      'seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
+      'important=excluded.important, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
       [
         n.id,
         n.title,
@@ -140,6 +158,7 @@ class NoteStore {
         n.version.encode(),
         n.lastDevice,
         n.deleted ? 1 : 0,
+        n.important ? 1 : 0,
         seq,
         src,
         jsonEncode(dismissed),
@@ -212,21 +231,33 @@ class NoteStore {
   }
 
   /// Soft delete (tombstone) so the deletion propagates to other devices.
-  void deleteNote(String id) {
+  void deleteNotes(Iterable<String> ids) {
     _tx(() {
-      final cur = getNote(id);
-      if (cur == null || cur.deleted) return;
-      final del = cur.copyWith(
-        deleted: true,
-        updatedAt: _now(),
-        version: cur.version.increment(deviceId),
-        lastDevice: deviceId,
-      );
-      final seq = _appendLog(id, 'delete', del.version, deviceId);
-      _writeNote(del, seq);
-      _db.execute('DELETE FROM attachments WHERE note_id = ?', [id]);
+      for (final id in ids) {
+        _deleteOne(id);
+      }
     });
     _notify();
+  }
+
+  /// Soft delete (tombstone) so the deletion propagates to other devices.
+  void deleteNote(String id) {
+    _tx(() => _deleteOne(id));
+    _notify();
+  }
+
+  void _deleteOne(String id) {
+    final cur = getNote(id);
+    if (cur == null || cur.deleted) return;
+    final del = cur.copyWith(
+      deleted: true,
+      updatedAt: _now(),
+      version: cur.version.increment(deviceId),
+      lastDevice: deviceId,
+    );
+    final seq = _appendLog(id, 'delete', del.version, deviceId);
+    _writeNote(del, seq);
+    _db.execute('DELETE FROM attachments WHERE note_id = ?', [id]);
   }
 
   // ---------------------------------------------------------------- sync
@@ -457,6 +488,16 @@ class NoteStore {
 
   Set<String> allAttachmentHashes() =>
       _db.select('SELECT DISTINCT sha256 FROM attachments').map((r) => r['sha256'] as String).toSet();
+
+  /// Remembers where the user saved a copy of [sha256] (for "open location").
+  void setSavedCopy(String sha256, String path) {
+    _db.execute('INSERT OR REPLACE INTO saved_copies (sha256, path) VALUES (?, ?)', [sha256, path]);
+  }
+
+  String? savedCopyPath(String sha256) {
+    final rs = _db.select('SELECT path FROM saved_copies WHERE sha256 = ?', [sha256]);
+    return rs.isEmpty ? null : rs.first['path'] as String;
+  }
 
   // ---------------------------------------------------------------- conflicts
 

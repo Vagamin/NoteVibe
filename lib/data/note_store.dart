@@ -76,7 +76,7 @@ class NoteStore {
   // ---------------------------------------------------------------- notes
 
   static const _noteCols =
-      'id, title, content, plain, created, updated, vv, dev, deleted, important, '
+      'id, title, content, plain, created, updated, vv, dev, deleted, important, archived, '
       '(SELECT COUNT(*) FROM conflicts c WHERE c.note_id = notes.id) AS nconf';
 
   Note _rowToNote(Row r) => Note(
@@ -90,6 +90,7 @@ class NoteStore {
         lastDevice: r['dev'] as String,
         deleted: (r['deleted'] as int) != 0,
         important: (r['important'] as int) != 0,
+        archived: (r['archived'] as int) != 0,
         hasConflict: ((r['nconf'] as int?) ?? 0) > 0,
       );
 
@@ -98,17 +99,46 @@ class NoteStore {
     return rs.isEmpty ? null : _rowToNote(rs.first);
   }
 
-  /// Lists non-deleted notes: important first, then newest. [query] does a
-  /// case-insensitive substring search in title and text (Unicode-aware).
-  List<Note> listNotes({String query = ''}) {
+  /// Lists non-deleted notes that are not archived: important first, then newest.
+  /// [query] does a case-insensitive substring search in title and text
+  /// (Unicode-aware).
+  List<Note> listNotes({String query = ''}) => _listWhere(archived: false, query: query);
+
+  /// Lists archived notes, newest first.
+  List<Note> listArchived({String query = ''}) => _listWhere(archived: true, query: query);
+
+  List<Note> _listWhere({required bool archived, required String query}) {
     final q = query.trim().toLowerCase();
+    final flag = archived ? 1 : 0;
     final rs = q.isEmpty
-        ? _db.select('SELECT $_noteCols FROM notes WHERE deleted = 0 ORDER BY important DESC, updated DESC')
-        : _db.select(
-            'SELECT $_noteCols FROM notes WHERE deleted = 0 AND instr(search, ?) > 0 '
+        ? _db.select(
+            'SELECT $_noteCols FROM notes WHERE deleted = 0 AND archived = ? '
             'ORDER BY important DESC, updated DESC',
-            [q]);
+            [flag])
+        : _db.select(
+            'SELECT $_noteCols FROM notes WHERE deleted = 0 AND archived = ? AND instr(search, ?) > 0 '
+            'ORDER BY important DESC, updated DESC',
+            [flag, q]);
     return rs.map(_rowToNote).toList();
+  }
+
+  /// Moves notes to or from the archive in one change. Syncs like any edit.
+  void setArchived(Iterable<String> ids, bool value) {
+    _tx(() {
+      for (final id in ids) {
+        final cur = getNote(id);
+        if (cur == null || cur.deleted || cur.archived == value) continue;
+        final next = cur.copyWith(
+          archived: value,
+          updatedAt: _now(),
+          version: cur.version.increment(deviceId),
+          lastDevice: deviceId,
+        );
+        final seq = _appendLog(id, 'upsert', next.version, deviceId);
+        _writeNote(next, seq);
+      }
+    });
+    _notify();
   }
 
   /// Sets or clears the importance flag. It is a regular edit, so it syncs.
@@ -141,12 +171,12 @@ class NoteStore {
   void _writeNote(Note n, int seq, {List<String>? dismissed, String? src}) {
     dismissed ??= _dismissed(n.id);
     _db.execute(
-      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, seq, src, dismissed) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, archived, seq, src, dismissed) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(id) DO UPDATE SET title=excluded.title, content=excluded.content, '
       'plain=excluded.plain, search=excluded.search, created=excluded.created, '
       'updated=excluded.updated, vv=excluded.vv, dev=excluded.dev, deleted=excluded.deleted, '
-      'important=excluded.important, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
+      'important=excluded.important, archived=excluded.archived, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
       [
         n.id,
         n.title,
@@ -159,6 +189,7 @@ class NoteStore {
         n.lastDevice,
         n.deleted ? 1 : 0,
         n.important ? 1 : 0,
+        n.archived ? 1 : 0,
         seq,
         src,
         jsonEncode(dismissed),

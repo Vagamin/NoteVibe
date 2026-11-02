@@ -70,11 +70,20 @@ class NotesList extends ConsumerWidget {
   final String? selectedId;
   final ValueChanged<Note> onOpen;
   final bool large;
-  const NotesList({super.key, required this.onOpen, this.selectedId, this.large = false});
+
+  /// Shows archived notes instead of the main list.
+  final bool archived;
+  const NotesList({
+    super.key,
+    required this.onOpen,
+    this.selectedId,
+    this.large = false,
+    this.archived = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notes = ref.watch(notesProvider);
+    final notes = ref.watch(archived ? archivedNotesProvider : notesProvider);
     final query = ref.watch(searchQueryProvider);
     final previewLines = ref.watch(previewLinesProvider);
     final picked = ref.watch(selectionProvider);
@@ -83,11 +92,15 @@ class NotesList extends ConsumerWidget {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(query.isEmpty ? Icons.edit_note : Icons.search_off,
+            Icon(query.isEmpty ? (archived ? Icons.archive_outlined : Icons.edit_note) : Icons.search_off,
                 size: 56, color: Theme.of(context).colorScheme.outline),
             const SizedBox(height: 12),
             Text(
-              query.isEmpty ? 'Заметок пока нет.\nНажмите «+», чтобы создать первую.' : 'Ничего не найдено',
+              query.isNotEmpty
+                  ? 'Ничего не найдено'
+                  : archived
+                      ? 'Архив пуст.\nЗаметки сюда попадают через «В архив» в режиме выбора.'
+                      : 'Заметок пока нет.\nНажмите «+», чтобы создать первую.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Theme.of(context).colorScheme.outline),
             ),
@@ -208,8 +221,8 @@ class NoteCard extends StatelessWidget {
             if (showBody) ...[
               const SizedBox(height: 6),
               Text(body,
-                  maxLines: previewLines.lines == 0 ? null : previewLines.lines,
-                  overflow: previewLines.lines == 0 ? TextOverflow.clip : TextOverflow.ellipsis,
+                  maxLines: previewLines.lines < 0 ? null : previewLines.lines,
+                  overflow: previewLines.lines < 0 ? TextOverflow.clip : TextOverflow.ellipsis,
                   style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant)),
             ],
             if (note.important) ...[

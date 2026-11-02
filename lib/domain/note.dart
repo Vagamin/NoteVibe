@@ -25,6 +25,9 @@ class Note {
   /// User marked the note as important (shown on top, highlighted).
   final bool important;
 
+  /// Moved to the archive: hidden from the main list, kept for reading.
+  final bool archived;
+
   /// Computed: there are unresolved conflicting versions for this note.
   final bool hasConflict;
 
@@ -39,6 +42,7 @@ class Note {
     required this.lastDevice,
     this.deleted = false,
     this.important = false,
+    this.archived = false,
     this.hasConflict = false,
   });
 
@@ -51,6 +55,7 @@ class Note {
     String? lastDevice,
     bool? deleted,
     bool? important,
+    bool? archived,
     bool? hasConflict,
   }) =>
       Note(
@@ -64,6 +69,7 @@ class Note {
         lastDevice: lastDevice ?? this.lastDevice,
         deleted: deleted ?? this.deleted,
         important: important ?? this.important,
+        archived: archived ?? this.archived,
         hasConflict: hasConflict ?? this.hasConflict,
       );
 
@@ -72,7 +78,8 @@ class Note {
       title == other.title &&
       content == other.content &&
       deleted == other.deleted &&
-      important == other.important;
+      important == other.important &&
+      archived == other.archived;
 
   String get displayTitle {
     if (title.trim().isNotEmpty) return title.trim();
@@ -91,6 +98,7 @@ class Note {
         'dev': lastDevice,
         'del': deleted,
         'imp': important,
+        'arc': archived,
       };
 
   static Note fromWire(Map<String, dynamic> m) {
@@ -108,6 +116,7 @@ class Note {
       lastDevice: m['dev'] as String? ?? '',
       deleted: m['del'] as bool? ?? false,
       important: m['imp'] as bool? ?? false,
+      archived: m['arc'] as bool? ?? false,
     );
   }
 

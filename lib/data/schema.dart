@@ -81,6 +81,10 @@ const _migrations = <String>[
   CREATE INDEX notes_important ON notes(deleted, important, updated);
   ''',
   '''
+  ALTER TABLE notes ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX notes_archived ON notes(deleted, archived, updated);
+  ''',
+  '''
   CREATE TABLE saved_copies (
     sha256 TEXT PRIMARY KEY,
     path   TEXT NOT NULL

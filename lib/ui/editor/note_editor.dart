@@ -192,6 +192,11 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   onPressed: () => _store.setImportant(widget.noteId, !note.important),
                 ),
                 IconButton(
+                  tooltip: note.archived ? 'Вернуть из архива' : 'В архив',
+                  icon: Icon(note.archived ? Icons.unarchive_outlined : Icons.archive_outlined),
+                  onPressed: () => _store.setArchived([widget.noteId], !note.archived),
+                ),
+                IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: confirmDelete,
                 ),
@@ -319,8 +324,8 @@ class FormatToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = large ? 22.0 : 20.0;
-    final factor = large ? 1.5 : 1.7;
+    final size = large ? 22.0 : 16.0;
+    final factor = large ? 1.5 : 1.25;
     final opts = QuillToolbarToggleStyleButtonOptions(iconSize: size, iconButtonFactor: factor);
     final divider = SizedBox(
       height: size,

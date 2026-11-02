@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/note.dart';
 import '../../sync/sync_service.dart';
+import '../archive/archive_screen.dart';
 import '../conflicts/conflict_screen.dart';
 import '../devices/devices_screen.dart';
 import '../editor/note_editor.dart';
@@ -64,6 +65,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
   }
 
+  void _bulkArchive(Set<String> ids) {
+    ref.read(storeProvider).setArchived(ids, true);
+    ref.read(selectionProvider.notifier).clear();
+  }
+
   void _bulkImportant(Set<String> ids) {
     final store = ref.read(storeProvider);
     for (final id in ids) {
@@ -108,6 +114,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           icon: const Icon(Icons.checklist),
           onPressed: () => ref.read(selectionProvider.notifier).start(),
         ),
+      IconButton(
+        tooltip: 'Архив',
+        icon: const Icon(Icons.archive_outlined),
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ArchiveScreen())),
+      ),
       SyncStatusChip(status: status, compact: !wide, onTap: () => _onStatusTap(status)),
       IconButton(
         tooltip: 'Устройства',
@@ -169,6 +180,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   ),
                   title: Text('Выбрано: ${selecting.length}'),
                   actions: [
+                    IconButton(
+                      tooltip: selecting.isEmpty ? 'Нет выбранных' : 'В архив',
+                      icon: const Icon(Icons.archive_outlined),
+                      onPressed: selecting.isEmpty ? null : () => _bulkArchive(selecting),
+                    ),
                     IconButton(
                       tooltip: selecting.isEmpty ? 'Нет выбранных' : 'Отметить важными',
                       icon: const Icon(Icons.star_outline),
@@ -239,6 +255,7 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
     final note = ref.watch(storeProvider).getNote(noteId);
     ref.watch(storeChangesProvider);
     final important = note?.important ?? false;
+    final archived = note?.archived ?? false;
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -253,6 +270,15 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
             icon: Icon(important ? Icons.star : Icons.star_outline,
                 color: important ? Colors.amber.shade700 : null),
             onPressed: () => ref.read(storeProvider).setImportant(noteId, !important),
+          ),
+          IconButton(
+            tooltip: archived ? 'Вернуть из архива' : 'В архив',
+            iconSize: 26,
+            icon: Icon(archived ? Icons.unarchive_outlined : Icons.archive_outlined),
+            onPressed: () {
+              ref.read(storeProvider).setArchived([noteId], !archived);
+              Navigator.of(context).maybePop();
+            },
           ),
           IconButton(
             tooltip: 'Удалить',

@@ -141,6 +141,11 @@ final notesProvider = Provider<List<Note>>((ref) {
   return ref.watch(storeProvider).listNotes(query: ref.watch(searchQueryProvider));
 });
 
+final archivedNotesProvider = Provider<List<Note>>((ref) {
+  ref.watch(storeChangesProvider);
+  return ref.watch(storeProvider).listArchived(query: ref.watch(searchQueryProvider));
+});
+
 class SelectedNote extends Notifier<String?> {
   @override
   String? build() => null;
@@ -188,13 +193,15 @@ class ThemeModeSetting extends Notifier<ThemeMode> {
 
 final themeModeProvider = NotifierProvider<ThemeModeSetting, ThemeMode>(ThemeModeSetting.new);
 
-/// How many lines of a note are shown in the list: 1 (title only), 2, 3 or full.
+/// How many lines of a note are shown in the list.
 enum PreviewLines {
-  titleOnly(1, 'Только заголовок'),
+  titleOnly(0, 'Только заголовок'),
+  one(1, '1 строка'),
   two(2, '2 строки'),
   three(3, '3 строки'),
-  full(0, 'Вся заметка');
+  full(-1, 'Вся заметка');
 
+  /// Lines of body text to show under the title. 0 hides the body, -1 shows all.
   final int lines;
   final String label;
   const PreviewLines(this.lines, this.label);

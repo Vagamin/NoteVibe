@@ -59,10 +59,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           listTileTheme: Theme.of(context).listTileTheme.copyWith(
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
             minVerticalPadding: 8,
+            tileColor: Theme.of(context).cardTheme.color,
             minLeadingWidth: 24,
             horizontalTitleGap: 12,
-            titleTextStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
-            subtitleTextStyle: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            titleTextStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3),
+            subtitleTextStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ),
         child: ListView(
@@ -143,7 +144,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsSwitch(
             icon: Icons.drag_indicator,
             title: const Text('Порядок вручную'),
-            subtitle: Text(Platform.isWindows ? 'Перетаскивайте мышью. Важные — сверху.' : 'Удерживайте для выбора, затем для переноса. Важные — сверху.'),
+            subtitle: Text(Platform.isWindows ? 'Перетаскивайте заметки мышью.\nВажные заметки остаются сверху.' : 'Удерживайте заметку для выбора.\nУдерживайте повторно для переноса.\nВажные заметки остаются сверху.'),
             value: ref.watch(manualOrderProvider),
             onChanged: (v) => ref.read(manualOrderProvider.notifier).set(v),
           ),
@@ -232,7 +233,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsSwitch(
               icon: Icons.update,
               title: const Text('Проверять обновления'),
-              subtitle: const Text('При открытии, не чаще одного раза в 6 часов.'),
+              subtitle: const Text('Проверка при открытии приложения.\nНе чаще одного раза в 6 часов.'),
              value: ref.watch(storeProvider).getSetting('updates_auto') != 'false',
              onChanged: (value) {
                ref.read(storeProvider).setSetting('updates_auto', '$value');
@@ -245,7 +246,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsSwitch(
             icon: Icons.download_outlined,
             title: const Text('Автозагрузка файлов'),
-            subtitle: const Text('Если выключено — загрузка по кнопке в заметке.'),
+            subtitle: const Text('Загружать вложения с других устройств.\nЕсли выключено — по кнопке в заметке.'),
             value: sync.autoDownloadFiles,
             onChanged: (v) {
               ref.read(storeProvider).setSetting(SyncService.autoDownloadSetting, v ? 'true' : 'false');
@@ -319,28 +320,34 @@ class _SettingsSwitch extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return MergeSemantics(
-      child: InkWell(
+      child: Card(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => onChanged(!value),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Icon(icon, size: 22, color: theme.colorScheme.onSurfaceVariant),
               const SizedBox(width: 12),
               Expanded(child: DefaultTextStyle(
-                style: theme.textTheme.bodyMedium!.copyWith(fontWeight: FontWeight.w500),
+                style: theme.textTheme.bodyLarge!.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3),
                 child: title,
               )),
               const SizedBox(width: 8),
               Switch(value: value, onChanged: onChanged),
             ]),
-            if (subtitle != null) DefaultTextStyle(
-              style: theme.textTheme.bodySmall!.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.4),
-              child: subtitle!,
+            if (subtitle != null) Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: DefaultTextStyle(
+                style: theme.textTheme.bodyMedium!.copyWith(fontSize: 14, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
+                child: subtitle!,
+              ),
             ),
           ]),
         ),
+      ),
       ),
     );
   }

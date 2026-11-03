@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Shared visual style for mobile and desktop.
 class AppTheme {
-  static const seed = Color(0xFF4F6BED);
+  static const seed = Color(0xFF286AA6);
 
   static ThemeData light() => _build(Brightness.light);
   static ThemeData dark() => _build(Brightness.dark);
@@ -10,10 +10,12 @@ class AppTheme {
   static ThemeData _build(Brightness b) {
     final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: b);
     final isDark = b == Brightness.dark;
+    final background = isDark ? const Color(0xFF15191F) : const Color(0xFFF5F7FA);
+    final card = isDark ? const Color(0xFF1E252E) : Colors.white;
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: isDark ? const Color(0xFF15161A) : const Color(0xFFF7F7FA),
+      scaffoldBackgroundColor: background,
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
@@ -28,7 +30,7 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? const Color(0xFF1F2026) : Colors.white,
+        color: card,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -37,7 +39,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: isDark ? const Color(0xFF1F2026) : Colors.white,
+        fillColor: card,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -52,6 +54,13 @@ class AppTheme {
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        elevation: 3,
+        highlightElevation: 5,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: card,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       listTileTheme: ListTileThemeData(
         minVerticalPadding: 12,

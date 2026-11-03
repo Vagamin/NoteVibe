@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/attachment.dart';
 import '../providers.dart';
+import '../select_dot.dart';
 import 'attachment_service.dart';
 
 final attachmentServiceProvider = Provider<AttachmentService>((ref) {
@@ -29,7 +30,9 @@ final downloadingProvider = NotifierProvider<DownloadingNotifier, Set<String>>(D
 /// Grey files can be downloaded from another paired device.
 class AttachmentsPanel extends ConsumerStatefulWidget {
   final String noteId;
-  const AttachmentsPanel({super.key, required this.noteId});
+  /// Hides audio files; voice notes show their recordings in their own panel.
+  final bool skipAudio;
+  const AttachmentsPanel({super.key, required this.noteId, this.skipAudio = false});
 
   @override
   ConsumerState<AttachmentsPanel> createState() => _AttachmentsPanelState();
@@ -74,7 +77,7 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
     // Rebuild when attachments or notes change.
     ref.watch(storeChangesProvider);
     final busy = ref.watch(downloadingProvider);
-    final items = store.attachmentsFor(noteId);
+    final items = store.attachmentsFor(noteId).where((a) => !(widget.skipAudio && a.mime.startsWith('audio/'))).toList();
     final selecting = _selected != null;
 
     return Column(
@@ -246,7 +249,7 @@ class _AttachmentTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(children: [
           if (checked != null) ...[
-            Checkbox(value: checked, onChanged: (_) => onTapSelect?.call()),
+            SelectDot(checked: checked!),
             const SizedBox(width: 4),
           ],
           Tooltip(

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -45,6 +46,35 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+
+  testWidgets('desktop: drag a note anywhere on the card in manual order', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async {
+      s = await makeServices();
+      s.store.createNote(title: 'Первая');
+      s.store.createNote(title: 'Вторая');
+      s.store.createNote(title: 'Третья');
+      s.store.setSetting('manual_order', 'true');
+    });
+    await pumpApp(tester, s);
+
+    final before = s.store.listNotes(manual: true).map((n) => n.title).toList();
+    expect(before.first, 'Третья');
+
+    final handle = find.text('Третья');
+    final start = tester.getCenter(handle);
+    final gesture = await tester.startGesture(start, kind: PointerDeviceKind.mouse);
+    await gesture.moveBy(const Offset(0, 40));
+    await tester.pump(const Duration(milliseconds: 50));
+    await gesture.moveBy(const Offset(0, 140));
+    await tester.pump(const Duration(milliseconds: 50));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    final after = s.store.listNotes(manual: true).map((n) => n.title).toList();
+    expect(after, isNot(equals(before)));
+    expect(after.toSet(), before.toSet());
+  });
 
   testWidgets('desktop: two panes, Ctrl+N creates note, editor autosaves', (tester) async {
     late AppServices s;
@@ -135,18 +165,19 @@ void main() {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());
     await pumpApp(tester, s, size: const Size(400, 800));
-    expect(find.byType(FloatingActionButton), findsOneWidget);
-    await tester.tap(find.byType(FloatingActionButton));
+    expect(find.byType(FloatingActionButton), findsNWidgets(2));
+    await tester.tap(find.byTooltip('Новая заметка'));
     await tester.pumpAndSettle();
     expect(find.byType(MobileEditorPage), findsOneWidget);
     expect(find.byTooltip('Жирный (Ctrl+B)'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Удалить'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
+    await tester.tap(find.widgetWithText(FilledButton, 'В корзину'));
     await tester.pumpAndSettle();
     expect(find.byType(MobileEditorPage), findsNothing);
     expect(s.store.listNotes(), isEmpty);
+    expect(s.store.listTrashed(), hasLength(1));
   });
 
   testWidgets('conflict badge and resolution screen', (tester) async {

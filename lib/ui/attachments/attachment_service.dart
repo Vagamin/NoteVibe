@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../data/attachment_storage.dart';
 import '../../data/note_store.dart';
@@ -48,6 +49,15 @@ class AttachmentService {
     return result;
   }
 
+  /// Path of the recording for playback. Verified copy, so a damaged file is not played.
+  Future<String> playablePath(Attachment a) async {
+    final dir = await getTemporaryDirectory();
+    final ext = p.extension(a.name).isEmpty ? '.bin' : p.extension(a.name);
+    final out = File(p.join(dir.path, 'notevibe_play', '${a.sha256}$ext'));
+    if (!await out.exists()) await files.exportTo(a.sha256, out);
+    return out.path;
+  }
+
   Future<void> open(Attachment a) async {
     final file = files.fileFor(a.sha256);
     if (!await file.exists()) throw const FileSystemException('Файл не найден на этом устройстве');
@@ -76,6 +86,24 @@ class AttachmentService {
     );
     if (target != null) store.setSavedCopy(a.sha256, target.toFilePath());
     return target?.toFilePath();
+  }
+
+  /// Saves the chosen recordings as files into a folder the user picks.
+  /// Each file is checked against its hash before it is written.
+  Future<int> saveRecordings(List<Attachment> items) async {
+    if (items.isEmpty) return 0;
+    final dir = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Сохранить записи в папку',
+      initialDirectory: defaultDownloadsDir,
+    );
+    if (dir == null) return 0;
+    var saved = 0;
+    for (final a in items) {
+      final bytes = await _verifiedBytes(a);
+      await _uniqueFile(p.join(dir, a.name)).writeAsBytes(bytes, flush: true);
+      saved++;
+    }
+    return saved;
   }
 
   /// Path of the saved copy, or null when there is no copy on disk.

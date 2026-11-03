@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +9,7 @@ import '../../sync/sync_service.dart';
 import '../../update/update_service.dart';
 import '../attachments/attachment_service.dart';
 import '../providers.dart';
+import '../voice/voice_panel.dart';
 import 'update_card.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -103,6 +106,93 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               );
               if (picked != null) ref.read(previewLinesProvider.notifier).set(picked);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.format_size),
+            title: const Text('Размер шрифта заметок'),
+            subtitle: Text('${ref.watch(noteFontSizeProvider).label} · Заголовки и текст в списке и редакторе'),
+            onTap: () async {
+              final picked = await showDialog<NoteFontSize>(
+                context: context,
+                builder: (c) => SimpleDialog(
+                  title: const Text('Размер шрифта заметок'),
+                  children: [
+                    for (final f in NoteFontSize.values)
+                      SimpleDialogOption(
+                        onPressed: () => Navigator.pop(c, f),
+                        child: Text(f.label),
+                      ),
+                  ],
+                ),
+              );
+              if (picked != null) ref.read(noteFontSizeProvider.notifier).set(picked);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.drag_indicator),
+            title: const Text('Порядок вручную'),
+            subtitle: const Text('Заметки перетаскиваются долгим нажатием. Важные остаются сверху'),
+            value: ref.watch(manualOrderProvider),
+            onChanged: (v) => ref.read(manualOrderProvider.notifier).set(v),
+          ),
+          if (Platform.isWindows)
+            ListTile(
+              leading: const Icon(Icons.mic_none),
+              title: const Text('Микрофон для голосовых заметок'),
+              subtitle: Text(ref.watch(captureDeviceProvider).isEmpty
+                  ? 'По умолчанию'
+                  : ref.watch(captureDeviceNameProvider)),
+              onTap: () async {
+                final devices = await ref.read(voiceServiceProvider).inputDevices();
+                if (!context.mounted) return;
+                final picked = await showDialog<String>(
+                  context: context,
+                  builder: (c) => SimpleDialog(
+                    title: const Text('Микрофон'),
+                    children: [
+                      SimpleDialogOption(
+                        onPressed: () => Navigator.pop(c, ''),
+                        child: const Text('По умолчанию'),
+                      ),
+                      for (final d in devices)
+                        SimpleDialogOption(
+                          onPressed: () => Navigator.pop(c, d.id),
+                          child: Text(d.label),
+                        ),
+                      if (devices.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('Список микрофонов недоступен'),
+                        ),
+                    ],
+                  ),
+                );
+                if (picked != null) {
+                  final name = devices.where((d) => d.id == picked).map((d) => d.label).firstOrNull ?? '';
+                  ref.read(captureDeviceProvider.notifier).set(picked, name);
+                }
+              },
+            ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Корзина'),
+            subtitle: Text(ref.watch(trashPeriodProvider).label),
+            onTap: () async {
+              final picked = await showDialog<TrashPeriod>(
+                context: context,
+                builder: (c) => SimpleDialog(
+                  title: const Text('Удалять из корзины'),
+                  children: [
+                    for (final p in TrashPeriod.values)
+                      SimpleDialogOption(
+                        onPressed: () => Navigator.pop(c, p),
+                        child: Text(p.label),
+                      ),
+                  ],
+                ),
+              );
+              if (picked != null) ref.read(trashPeriodProvider.notifier).set(picked);
             },
           ),
           const SizedBox(height: 24),

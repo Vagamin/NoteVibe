@@ -83,6 +83,7 @@ class AppServices {
       debugPrint('Sync start failed: $e');
     }
     store.pruneChangeLog();
+    store.purgeExpiredTrash();
     return AppServices(store, sync, AttachmentStorage(Directory(dir.path)));
   }
 
@@ -138,12 +139,82 @@ final selectionProvider = NotifierProvider<NoteSelection, Set<String>?>(NoteSele
 
 final notesProvider = Provider<List<Note>>((ref) {
   ref.watch(storeChangesProvider);
-  return ref.watch(storeProvider).listNotes(query: ref.watch(searchQueryProvider));
+  return ref.watch(storeProvider).listNotes(
+        query: ref.watch(searchQueryProvider),
+        manual: ref.watch(manualOrderProvider),
+      );
 });
 
 final archivedNotesProvider = Provider<List<Note>>((ref) {
   ref.watch(storeChangesProvider);
   return ref.watch(storeProvider).listArchived(query: ref.watch(searchQueryProvider));
+});
+
+final trashedNotesProvider = Provider<List<Note>>((ref) {
+  ref.watch(storeChangesProvider);
+  return ref.watch(storeProvider).listTrashed(query: ref.watch(searchQueryProvider));
+});
+
+/// Whether the list follows the user's own order instead of the date.
+class ManualOrderSetting extends Notifier<bool> {
+  @override
+  bool build() => ref.watch(storeProvider).getSetting('manual_order') == 'true';
+
+  void set(bool v) {
+    ref.read(storeProvider).setSetting('manual_order', v ? 'true' : 'false');
+    state = v;
+  }
+}
+
+final manualOrderProvider = NotifierProvider<ManualOrderSetting, bool>(ManualOrderSetting.new);
+
+/// How long deleted notes stay in the trash, in days. 0 deletes at once.
+enum TrashPeriod {
+  immediately(0, 'Сразу, без корзины'),
+  day(1, 'Через 1 день'),
+  week(7, 'Через 7 дней'),
+  month(30, 'Через 30 дней'),
+  never(-1, 'Не удалять');
+
+  /// Days in the trash; -1 keeps notes until the user deletes them.
+  final int days;
+  final String label;
+  const TrashPeriod(this.days, this.label);
+}
+
+class TrashPeriodSetting extends Notifier<TrashPeriod> {
+  @override
+  TrashPeriod build() {
+    final v = ref.watch(storeProvider).getSetting(NoteStore.trashDaysSetting);
+    final days = int.tryParse(v ?? '');
+    return TrashPeriod.values.firstWhere((m) => m.days == days, orElse: () => TrashPeriod.month);
+  }
+
+  void set(TrashPeriod p) {
+    ref.read(storeProvider).setSetting(NoteStore.trashDaysSetting, '${p.days}');
+    state = p;
+  }
+}
+
+final trashPeriodProvider = NotifierProvider<TrashPeriodSetting, TrashPeriod>(TrashPeriodSetting.new);
+
+/// Microphone used for voice notes (PC only). Empty means the system default.
+class CaptureDeviceSetting extends Notifier<String> {
+  @override
+  String build() => ref.watch(storeProvider).getSetting('capture_device') ?? '';
+
+  void set(String id, String name) {
+    ref.read(storeProvider).setSetting('capture_device', id);
+    ref.read(storeProvider).setSetting('capture_device_name', name);
+    state = id;
+  }
+}
+
+final captureDeviceProvider = NotifierProvider<CaptureDeviceSetting, String>(CaptureDeviceSetting.new);
+
+final captureDeviceNameProvider = Provider<String>((ref) {
+  ref.watch(captureDeviceProvider);
+  return ref.watch(storeProvider).getSetting('capture_device_name') ?? '';
 });
 
 class SelectedNote extends Notifier<String?> {
@@ -221,3 +292,31 @@ class PreviewLinesSetting extends Notifier<PreviewLines> {
 }
 
 final previewLinesProvider = NotifierProvider<PreviewLinesSetting, PreviewLines>(PreviewLinesSetting.new);
+
+/// Text size of notes, both in the editor and in the list.
+enum NoteFontSize {
+  small(0.88, 'Мелкий'),
+  normal(1.0, 'Обычный'),
+  large(1.2, 'Крупный'),
+  huge(1.4, 'Очень крупный');
+
+  /// Multiplier applied to the default text size.
+  final double scale;
+  final String label;
+  const NoteFontSize(this.scale, this.label);
+}
+
+class NoteFontSizeSetting extends Notifier<NoteFontSize> {
+  @override
+  NoteFontSize build() {
+    final v = ref.watch(storeProvider).getSetting('note_font_size');
+    return NoteFontSize.values.firstWhere((m) => m.name == v, orElse: () => NoteFontSize.normal);
+  }
+
+  void set(NoteFontSize f) {
+    ref.read(storeProvider).setSetting('note_font_size', f.name);
+    state = f;
+  }
+}
+
+final noteFontSizeProvider = NotifierProvider<NoteFontSizeSetting, NoteFontSize>(NoteFontSizeSetting.new);

@@ -12,6 +12,7 @@ import '../../domain/note.dart';
 import '../conflicts/conflict_screen.dart';
 import '../attachments/attachments_panel.dart';
 import '../providers.dart';
+import '../voice/voice_panel.dart';
 
 final _dateFmt = DateFormat('d MMM yyyy, HH:mm', 'ru');
 
@@ -145,21 +146,25 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   }
 
   Future<void> confirmDelete() async {
+    final store = ref.read(storeProvider);
+    final toTrash = store.trashDays != 0;
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Удалить заметку?'),
-        content: const Text('Заметка будет удалена на всех синхронизированных устройствах.'),
+        title: Text(toTrash ? 'Переместить в корзину?' : 'Удалить заметку?'),
+        content: Text(toTrash
+            ? 'Заметка попадёт в корзину и удалится автоматически по сроку из настроек.'
+            : 'Заметка будет удалена на всех синхронизированных устройствах.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(toTrash ? 'В корзину' : 'Удалить')),
         ],
       ),
     );
     if (ok != true) return;
     _saveTimer?.cancel();
     _dirty = false;
-    _store.deleteNote(widget.noteId);
+    store.removeNotes([widget.noteId]);
     widget.onDeleted?.call();
   }
 
@@ -184,7 +189,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 16, 0),
               child: Row(children: [
-                Expanded(child: toolbar),
+                Expanded(child: note.isVoice ? const SizedBox.shrink() : toolbar),
                 IconButton(
                   tooltip: note.important ? 'Снять отметку «важное»' : 'Отметить как важное',
                   icon: Icon(note.important ? Icons.star : Icons.star_outline,
@@ -216,7 +221,10 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               children: [
                 TextField(
                   controller: _title,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                     fontWeight: FontWeight.w700,
+                     fontSize: Theme.of(context).textTheme.headlineSmall!.fontSize! * ref.watch(noteFontSizeProvider).scale,
+                   ),
                   decoration: const InputDecoration(
                     hintText: 'Заголовок',
                     border: InputBorder.none,
@@ -234,23 +242,26 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.outline),
                 ),
                 const SizedBox(height: 16),
-                QuillEditor(
-                  controller: _quill,
-                  focusNode: _editorFocus,
-                  scrollController: ScrollController(),
-                  config: QuillEditorConfig(
-                    scrollable: false,
-                    placeholder: 'Начните писать…',
-                    padding: const EdgeInsets.only(bottom: 120),
-                    customStyles: _styles(context),
+                if (note.isVoice)
+                  VoicePanel(noteId: widget.noteId)
+                else
+                  QuillEditor(
+                    controller: _quill,
+                    focusNode: _editorFocus,
+                    scrollController: ScrollController(),
+                    config: QuillEditorConfig(
+                      scrollable: false,
+                      placeholder: 'Начните писать…',
+                      padding: const EdgeInsets.only(bottom: 120),
+                      customStyles: _styles(context),
+                    ),
                   ),
-                ),
                 const SizedBox(height: 16),
-                AttachmentsPanel(noteId: widget.noteId),
+                AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
               ],
             ),
           ),
-          if (widget.compact)
+          if (widget.compact && !note.isVoice)
             SafeArea(
               top: false,
               child: Container(
@@ -268,7 +279,8 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   }
 
   DefaultStyles _styles(BuildContext context) {
-    final base = Theme.of(context).textTheme.bodyLarge!.copyWith(fontSize: 17, height: 1.5);
+    final scale = ref.watch(noteFontSizeProvider).scale;
+    final base = Theme.of(context).textTheme.bodyLarge!.copyWith(fontSize: 17 * scale, height: 1.5);
     return DefaultStyles(
       paragraph: DefaultTextBlockStyle(
         base,

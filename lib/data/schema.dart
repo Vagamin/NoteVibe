@@ -98,6 +98,14 @@ const _migrations = <String>[
     path   TEXT NOT NULL
   );
   ''',
+  '''
+  ALTER TABLE notes ADD COLUMN trashed_at INTEGER;
+  ALTER TABLE notes ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX notes_trashed ON notes(deleted, trashed_at);
+  ''',
+  '''
+  ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';
+  ''',
 ];
 
 int get schemaVersion => _migrations.length;
@@ -154,6 +162,10 @@ void _repairSchema(Database db) {
     'CREATE INDEX notes_important ON notes(deleted, important, updated)',
     'CREATE INDEX notes_archived ON notes(deleted, archived, updated)',
     'CREATE TABLE IF NOT EXISTS saved_copies (sha256 TEXT PRIMARY KEY, path TEXT NOT NULL)',
+    'ALTER TABLE notes ADD COLUMN trashed_at INTEGER',
+    'ALTER TABLE notes ADD COLUMN position INTEGER NOT NULL DEFAULT 0',
+    'CREATE INDEX notes_trashed ON notes(deleted, trashed_at)',
+    "ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'",
   ];
   db.execute('BEGIN');
   try {

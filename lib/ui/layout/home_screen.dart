@@ -12,6 +12,7 @@ import '../notes_list/notes_list.dart';
 import '../providers.dart';
 import '../settings/settings_screen.dart';
 import '../theme/app_theme.dart';
+import '../trash/trash_screen.dart';
 import '../widgets/sync_status_chip.dart';
 
 /// Adaptive root: list + editor side-by-side on wide screens,
@@ -49,6 +50,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _open(n, wide);
   }
 
+  void _newVoiceNote(bool wide) {
+    ref.read(searchQueryProvider.notifier).set('');
+    final n = ref.read(storeProvider).createNote(kind: 'voice');
+    _open(n, wide);
+  }
+
   void _open(Note n, bool wide) {
     if (wide) {
       ref.read(selectedNoteProvider.notifier).select(n.id);
@@ -72,27 +79,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   void _bulkImportant(Set<String> ids) {
     final store = ref.read(storeProvider);
+    final allImportant = ids.every((id) => store.getNote(id)?.important ?? false);
     for (final id in ids) {
-      store.setImportant(id, true);
+      store.setImportant(id, !allImportant);
     }
     ref.read(selectionProvider.notifier).clear();
   }
 
   Future<void> _bulkDelete(Set<String> ids) async {
+    final store = ref.read(storeProvider);
+    final toTrash = store.trashDays != 0;
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text('Удалить заметки (${ids.length})?'),
-        content: const Text('Заметки будут удалены на всех синхронизированных устройствах.'),
+        title: Text(toTrash ? 'В корзину (${ids.length})?' : 'Удалить заметки (${ids.length})?'),
+        content: Text(toTrash
+            ? 'Заметки попадут в корзину и удалятся автоматически по сроку из настроек.'
+            : 'Заметки будут удалены на всех синхронизированных устройствах.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(toTrash ? 'В корзину' : 'Удалить')),
         ],
       ),
     );
     if (ok != true) return;
     final selectedNote = ref.read(selectedNoteProvider);
-    ref.read(storeProvider).deleteNotes(ids);
+    store.removeNotes(ids);
     if (selectedNote != null && ids.contains(selectedNote)) {
       ref.read(selectedNoteProvider.notifier).select(null);
     }
@@ -108,6 +120,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final selecting = ref.watch(selectionProvider);
 
     final actions = <Widget>[
+      if (wide) ...[
       if (selecting == null)
         IconButton(
           tooltip: 'Выбрать заметки',
@@ -119,7 +132,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         icon: const Icon(Icons.archive_outlined),
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ArchiveScreen())),
       ),
+      IconButton(
+        tooltip: 'Корзина',
+        icon: const Icon(Icons.delete_outline),
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrashScreen())),
+      ),
       const SizedBox(width: 8),
+      ] else ...[
+        SyncStatusChip(status: status, compact: true, onTap: () => _onStatusTap(status)),
+        PopupMenuButton<String>(
+          tooltip: 'Меню',
+          position: PopupMenuPosition.under,
+          offset: const Offset(-8, 8),
+          constraints: const BoxConstraints(minWidth: 224, maxWidth: 280),
+          menuPadding: const EdgeInsets.all(8),
+          color: Theme.of(context).cardTheme.color,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.black.withValues(alpha: 0.16),
+          elevation: 6,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          popUpAnimationStyle: const AnimationStyle(
+            duration: Duration(milliseconds: 280),
+            reverseDuration: Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+          onSelected: (value) {
+            final Widget page = switch (value) {
+              'archive' => const ArchiveScreen(),
+              'trash' => const TrashScreen(),
+              'devices' => const DevicesScreen(),
+              _ => const SettingsScreen(),
+            };
+            Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'archive', child: _HomeMenuLabel(icon: Icons.archive_outlined, text: 'Архив')),
+            PopupMenuItem(value: 'trash', child: _HomeMenuLabel(icon: Icons.delete_outline, text: 'Корзина')),
+            PopupMenuItem(value: 'devices', child: _HomeMenuLabel(icon: Icons.devices_outlined, text: 'Устройства')),
+            PopupMenuItem(value: 'settings', child: _HomeMenuLabel(icon: Icons.settings_outlined, text: 'Настройки')),
+          ],
+        ),
+      ],
+      if (wide) ...[
       SyncStatusChip(status: status, compact: !wide, onTap: () => _onStatusTap(status)),
       const SizedBox(width: 8),
       IconButton(
@@ -133,6 +194,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
       ),
       const SizedBox(width: 8),
+      ],
     ];
 
     final listPane = Column(children: [
@@ -155,7 +217,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             VerticalDivider(width: 1, color: Theme.of(context).dividerTheme.color),
             Expanded(
               child: selected == null || ref.watch(storeProvider).getNote(selected)?.deleted != false
-                  ? _EmptyEditor(onCreate: () => _newNote(true))
+                  ? _EmptyEditor(
+                      onCreate: () => _newNote(true),
+                      onCreateVoice: () => _newVoiceNote(true),
+                    )
                   : NoteEditor(
                       key: ValueKey(selected),
                       noteId: selected,
@@ -173,8 +238,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          appBar: selecting != null
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(kToolbarHeight),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              reverseDuration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: selecting != null
               ? AppBar(
+                  key: const ValueKey('selection'),
                   leading: IconButton(
                     tooltip: 'Отменить выбор',
                     icon: const Icon(Icons.close),
@@ -201,26 +274,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   ],
                 )
               : AppBar(
+                  key: const ValueKey('normal'),
                   title: const Text('NoteVibe'),
                   actions: actions,
                 ),
+            ),
+          ),
           body: body,
           floatingActionButton: wide || selecting != null
               ? null
-              : FloatingActionButton(
-                  tooltip: 'Новая заметка',
-                  onPressed: () => _newNote(false),
-                  child: const Icon(Icons.add),
-                ),
+              : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  FloatingActionButton(
+                    heroTag: 'voice',
+                    tooltip: 'Голосовая заметка',
+                    onPressed: () => _newVoiceNote(false),
+                    child: const Icon(Icons.mic),
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingActionButton(
+                    heroTag: 'note',
+                    tooltip: 'Новая заметка',
+                    onPressed: () => _newNote(false),
+                    child: const Icon(Icons.add),
+                  ),
+                ]),
         ),
       ),
     );
   }
 }
 
+class _HomeMenuLabel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _HomeMenuLabel({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Icon(icon, size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+    const SizedBox(width: 14),
+    Text(text, style: Theme.of(context).textTheme.bodyLarge),
+  ]);
+}
+
 class _EmptyEditor extends StatelessWidget {
   final VoidCallback onCreate;
-  const _EmptyEditor({required this.onCreate});
+  final VoidCallback onCreateVoice;
+  const _EmptyEditor({required this.onCreate, required this.onCreateVoice});
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
@@ -230,11 +330,18 @@ class _EmptyEditor extends StatelessWidget {
         const SizedBox(height: 16),
         Text('Выберите заметку или создайте новую', style: TextStyle(color: s.outline)),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: onCreate,
-          icon: const Icon(Icons.add),
-          label: const Text('Новая заметка  (Ctrl+N)'),
-        ),
+        Wrap(alignment: WrapAlignment.center, spacing: 12, runSpacing: 12, children: [
+          FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add),
+            label: const Text('Новая заметка  (Ctrl+N)'),
+          ),
+          OutlinedButton.icon(
+            onPressed: onCreateVoice,
+            icon: const Icon(Icons.mic),
+            label: const Text('Голосовая заметка'),
+          ),
+        ]),
       ]),
     );
   }

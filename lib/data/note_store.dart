@@ -78,7 +78,7 @@ class NoteStore {
   // ---------------------------------------------------------------- notes
 
   static const _noteCols =
-      'id, title, content, plain, created, updated, vv, dev, deleted, important, archived, '
+      'id, title, content, plain, created, updated, vv, dev, deleted, important, archived, trashed_at, position, kind, '
       '(SELECT COUNT(*) FROM conflicts c WHERE c.note_id = notes.id) AS nconf';
 
   Note _rowToNote(Row r) => Note(
@@ -93,6 +93,9 @@ class NoteStore {
         deleted: (r['deleted'] as int) != 0,
         important: (r['important'] as int) != 0,
         archived: (r['archived'] as int) != 0,
+        trashedAt: r['trashed_at'] == null ? null : DateTime.fromMillisecondsSinceEpoch(r['trashed_at'] as int),
+        position: r['position'] as int,
+        kind: r['kind'] as String,
         hasConflict: ((r['nconf'] as int?) ?? 0) > 0,
       );
 
@@ -101,26 +104,34 @@ class NoteStore {
     return rs.isEmpty ? null : _rowToNote(rs.first);
   }
 
-  /// Lists non-deleted notes that are not archived: important first, then newest.
-  /// [query] does a case-insensitive substring search in title and text
-  /// (Unicode-aware).
-  List<Note> listNotes({String query = ''}) => _listWhere(archived: false, query: query);
+  /// Lists notes that are neither archived nor in the trash: important first,
+  /// then by [manual] order or newest first. [query] does a case-insensitive
+  /// substring search in title and text (Unicode-aware).
+  List<Note> listNotes({String query = '', bool manual = false}) => _listWhere(
+        'deleted = 0 AND archived = 0 AND trashed_at IS NULL',
+        query: query,
+        order: manual ? 'important DESC, position, updated DESC' : 'important DESC, updated DESC',
+      );
 
   /// Lists archived notes, newest first.
-  List<Note> listArchived({String query = ''}) => _listWhere(archived: true, query: query);
+  List<Note> listArchived({String query = ''}) => _listWhere(
+        'deleted = 0 AND archived = 1 AND trashed_at IS NULL',
+        query: query,
+        order: 'important DESC, updated DESC',
+      );
 
-  List<Note> _listWhere({required bool archived, required String query}) {
+  /// Lists notes in the trash, most recently deleted first.
+  List<Note> listTrashed({String query = ''}) => _listWhere(
+        'deleted = 0 AND trashed_at IS NOT NULL',
+        query: query,
+        order: 'trashed_at DESC',
+      );
+
+  List<Note> _listWhere(String where, {required String query, required String order}) {
     final q = query.trim().toLowerCase();
-    final flag = archived ? 1 : 0;
     final rs = q.isEmpty
-        ? _db.select(
-            'SELECT $_noteCols FROM notes WHERE deleted = 0 AND archived = ? '
-            'ORDER BY important DESC, updated DESC',
-            [flag])
-        : _db.select(
-            'SELECT $_noteCols FROM notes WHERE deleted = 0 AND archived = ? AND instr(search, ?) > 0 '
-            'ORDER BY important DESC, updated DESC',
-            [flag, q]);
+        ? _db.select('SELECT $_noteCols FROM notes WHERE $where ORDER BY $order')
+        : _db.select('SELECT $_noteCols FROM notes WHERE $where AND instr(search, ?) > 0 ORDER BY $order', [q]);
     return rs.map(_rowToNote).toList();
   }
 
@@ -141,6 +152,96 @@ class NoteStore {
       }
     });
     _notify();
+  }
+
+  /// Sets the manual order of the notes: [ids] goes top to bottom. Only notes
+  /// whose place changed are written. The edit time is kept, so the order does
+  /// not move notes in the date sort.
+  void setOrder(List<String> ids) {
+    _tx(() {
+      for (var i = 0; i < ids.length; i++) {
+        final cur = getNote(ids[i]);
+        if (cur == null || cur.deleted || cur.position == i) continue;
+        final next = cur.copyWith(
+          position: i,
+          version: cur.version.increment(deviceId),
+          lastDevice: deviceId,
+        );
+        final seq = _appendLog(cur.id, 'upsert', next.version, deviceId);
+        _writeNote(next, seq);
+      }
+    });
+    _notify();
+  }
+
+  /// Moves notes to the trash. They are hidden everywhere except the trash
+  /// until they are restored or purged. Syncs like any edit.
+  void trashNotes(Iterable<String> ids) {
+    _tx(() {
+      for (final id in ids) {
+        final cur = getNote(id);
+        if (cur == null || cur.deleted || cur.trashedAt != null) continue;
+        final now = _now();
+        final next = cur.copyWith(
+          trashedAt: now,
+          updatedAt: now,
+          version: cur.version.increment(deviceId),
+          lastDevice: deviceId,
+        );
+        final seq = _appendLog(id, 'upsert', next.version, deviceId);
+        _writeNote(next, seq);
+      }
+    });
+    _notify();
+  }
+
+  /// Takes notes back out of the trash. Syncs like any edit.
+  void restoreNotes(Iterable<String> ids) {
+    _tx(() {
+      for (final id in ids) {
+        final cur = getNote(id);
+        if (cur == null || cur.deleted || cur.trashedAt == null) continue;
+        final next = cur.copyWith(
+          clearTrashed: true,
+          updatedAt: _now(),
+          version: cur.version.increment(deviceId),
+          lastDevice: deviceId,
+        );
+        final seq = _appendLog(id, 'upsert', next.version, deviceId);
+        _writeNote(next, seq);
+      }
+    });
+    _notify();
+  }
+
+  /// How many days a deleted note stays in the trash. 0 means it is deleted at once,
+  /// -1 means it is kept until the user deletes it.
+  int get trashDays => int.tryParse(getSetting(trashDaysSetting) ?? '') ?? 30;
+
+  static const trashDaysSetting = 'trash_days';
+
+  /// Deletes notes the way the user asked: through the trash, or at once when
+  /// the trash is turned off.
+  void removeNotes(Iterable<String> ids) {
+    if (trashDays == 0) {
+      deleteNotes(ids);
+    } else {
+      trashNotes(ids);
+    }
+  }
+
+  /// Permanently deletes trashed notes older than the trash period. With the
+  /// trash turned off, everything in the trash is deleted. With «never» nothing is purged.
+  void purgeExpiredTrash() {
+    final days = trashDays;
+    if (days < 0) return;
+    final cutoff = _now().subtract(Duration(days: days)).millisecondsSinceEpoch;
+    final rs = _db.select(
+      'SELECT id FROM notes WHERE deleted = 0 AND trashed_at IS NOT NULL AND trashed_at <= ?',
+      [cutoff],
+    );
+    if (rs.isEmpty) return;
+    deleteNotes(rs.map((r) => r['id'] as String));
   }
 
   /// Sets or clears the importance flag. It is a regular edit, so it syncs.
@@ -173,12 +274,13 @@ class NoteStore {
   void _writeNote(Note n, int seq, {List<String>? dismissed, String? src}) {
     dismissed ??= _dismissed(n.id);
     _db.execute(
-      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, archived, seq, src, dismissed) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, archived, trashed_at, position, kind, seq, src, dismissed) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(id) DO UPDATE SET title=excluded.title, content=excluded.content, '
       'plain=excluded.plain, search=excluded.search, created=excluded.created, '
       'updated=excluded.updated, vv=excluded.vv, dev=excluded.dev, deleted=excluded.deleted, '
-      'important=excluded.important, archived=excluded.archived, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
+      'important=excluded.important, archived=excluded.archived, trashed_at=excluded.trashed_at, '
+      'position=excluded.position, kind=excluded.kind, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
       [
         n.id,
         n.title,
@@ -192,6 +294,9 @@ class NoteStore {
         n.deleted ? 1 : 0,
         n.important ? 1 : 0,
         n.archived ? 1 : 0,
+        n.trashedAt?.millisecondsSinceEpoch,
+        n.position,
+        n.kind,
         seq,
         src,
         jsonEncode(dismissed),
@@ -205,8 +310,10 @@ class NoteStore {
     return (jsonDecode(rs.first['dismissed'] as String) as List).cast<String>();
   }
 
-  Note createNote({String title = '', String content = emptyDeltaJson, String plainText = ''}) {
+  Note createNote({String title = '', String content = emptyDeltaJson, String plainText = '', String kind = 'text'}) {
     final now = _now();
+    // New notes go to the top of the manual order.
+    final top = _db.select('SELECT COALESCE(MIN(position), 0) - 1 AS p FROM notes WHERE deleted = 0').first['p'] as int;
     final note = Note(
       id: _uuid.v4(),
       title: title,
@@ -216,6 +323,8 @@ class NoteStore {
       updatedAt: now,
       version: VersionVector.empty.increment(deviceId),
       lastDevice: deviceId,
+      position: top,
+      kind: kind,
     );
     _tx(() {
       final seq = _appendLog(note.id, 'upsert', note.version, deviceId);

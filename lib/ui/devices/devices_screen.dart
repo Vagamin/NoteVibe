@@ -31,8 +31,18 @@ class DevicesScreen extends ConsumerWidget {
     final t = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Устройства и синхронизация')),
-      body: ListView(
+      appBar: AppBar(title: const Text('Устройства')),
+      body: Theme(
+        data: Theme.of(context).copyWith(
+          listTileTheme: Theme.of(context).listTileTheme.copyWith(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            minLeadingWidth: 24,
+            horizontalTitleGap: 12,
+            titleTextStyle: t.bodyLarge?.copyWith(fontWeight: FontWeight.w600, height: 1.3),
+            subtitleTextStyle: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4),
+          ),
+        ),
+        child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
@@ -54,18 +64,34 @@ class DevicesScreen extends ConsumerWidget {
                       style: t.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error)),
                 ],
                 const SizedBox(height: 8),
-                SwitchListTile(
-                  title: const Text('Автоматическая синхронизация'),
-                  subtitle: const Text('В одной Wi‑Fi/LAN-сети, без интернета и облака'),
-                  value: status.autoSync,
-                  onChanged: (v) => sync.autoSync = v,
-                ),
-                Text('Это устройство: ${sync.identity.name} · ключ ${sync.identity.fingerprint} · v$appVersion',
-                    style: t.bodySmall),
+                Row(children: [
+                  Expanded(child: Text('Автосинхронизация', style: t.bodyLarge?.copyWith(fontWeight: FontWeight.w600))),
+                  const SizedBox(width: 8),
+                  Switch(value: status.autoSync, onChanged: (v) => sync.autoSync = v),
+                ]),
+                Text('В одной Wi‑Fi или локальной сети.\nБез интернета и облака.',
+                  style: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4)),
               ]),
             ),
           ),
           const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Это устройство', style: t.titleSmall),
+                const SizedBox(height: 8),
+                Text(sync.identity.name, style: t.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Text('Ключ: ${sync.identity.fingerprint}\nВерсия: $appVersion',
+                  style: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4)),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text('Добавить устройство', style: t.titleSmall),
+          const SizedBox(height: 8),
+          Card(child: Padding(padding: const EdgeInsets.all(12), child:
           LayoutBuilder(builder: (context, c) {
             final show = FilledButton.icon(
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
@@ -92,16 +118,19 @@ class DevicesScreen extends ConsumerWidget {
               Expanded(child: join),
             ]);
           }),
+          )),
           const SizedBox(height: 24),
           Text('Сопряжённые устройства', style: t.titleSmall),
           const SizedBox(height: 8),
           if (peers.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('Пока нет. Откройте «Показать код» на одном устройстве и «Подключиться» на другом.'),
+            const Card(child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Сопряжённых устройств пока нет.\nПокажите код на одном устройстве и подключитесь с другого.'),
+            ),
             ),
           for (final p in peers)
             Card(
+              margin: const EdgeInsets.symmetric(vertical: 4),
               child: ListTile(
                 leading: Icon(
                   Icons.devices,
@@ -111,11 +140,27 @@ class DevicesScreen extends ConsumerWidget {
                 ),
                 title: Text(p.name),
                 subtitle: Text([
-                  if (discovered.any((d) => d.deviceId == p.deviceId)) 'в сети' else 'не в сети',
-                  if (p.lastSyncAt != null) 'синхр. ${_ago(p.lastSyncAt!)}',
+                  if (discovered.any((d) => d.deviceId == p.deviceId)) 'В сети' else 'Не в сети',
+                  if (p.lastSyncAt != null) 'Синхронизация: ${_ago(p.lastSyncAt!)}',
                   if (p.lastAddress != null) p.lastAddress!,
-                ].join(' · ')),
+                ].join('\n')),
                 trailing: PopupMenuButton<String>(
+                  tooltip: 'Действия с устройством',
+                  position: PopupMenuPosition.under,
+                  menuPadding: const EdgeInsets.all(8),
+                  color: Theme.of(context).cardTheme.color,
+                  surfaceTintColor: Colors.transparent,
+                  elevation: 6,
+                  shadowColor: Colors.black.withValues(alpha: 0.16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                  ),
+                  popUpAnimationStyle: const AnimationStyle(
+                    duration: Duration(milliseconds: 280),
+                    reverseDuration: Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                  ),
                   onSelected: (v) async {
                     if (v == 'unpair') {
                       final ok = await showDialog<bool>(
@@ -139,8 +184,8 @@ class DevicesScreen extends ConsumerWidget {
                     }
                   },
                   itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'addr', child: Text('Указать IP вручную')),
-                    PopupMenuItem(value: 'unpair', child: Text('Отвязать')),
+                    PopupMenuItem(value: 'addr', child: Row(children: [Icon(Icons.lan_outlined, size: 20), SizedBox(width: 12), Text('Указать IP вручную')])),
+                    PopupMenuItem(value: 'unpair', child: Row(children: [Icon(Icons.link_off, size: 20), SizedBox(width: 12), Text('Отвязать')])),
                   ],
                 ),
               ),
@@ -151,21 +196,21 @@ class DevicesScreen extends ConsumerWidget {
             const SizedBox(height: 8),
             for (final d in unpaired)
               Card(
+                margin: const EdgeInsets.symmetric(vertical: 4),
                 child: ListTile(
                   leading: const Icon(Icons.wifi_tethering),
                   title: Text(d.name),
-                  subtitle: Text('${d.address} · ключ ${d.fingerprint}'),
-                  trailing: TextButton(
-                    onPressed: () => Navigator.push(
+                  subtitle: Text('${d.address}\nКлюч: ${d.fingerprint}'),
+                  onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => JoinPairingScreen(target: d)),
                     ),
-                    child: const Text('Сопрячь'),
-                  ),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
                 ),
               ),
           ],
         ],
+      ),
       ),
     );
   }

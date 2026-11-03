@@ -54,7 +54,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final status = ref.watch(syncStatusProvider).value ?? sync.currentStatus;
     return Scaffold(
       appBar: AppBar(title: const Text('Настройки')),
-      body: ListView(
+      body: Theme(
+        data: Theme.of(context).copyWith(
+          listTileTheme: Theme.of(context).listTileTheme.copyWith(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            minVerticalPadding: 8,
+            minLeadingWidth: 24,
+            horizontalTitleGap: 12,
+            titleTextStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+            subtitleTextStyle: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ),
+        child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text('Тема', style: Theme.of(context).textTheme.titleSmall),
@@ -89,7 +100,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 8),
           ListTile(
             leading: const Icon(Icons.view_headline_outlined),
-            title: const Text('Сколько показывать в списке'),
+            title: const Text('Предпросмотр заметок'),
             subtitle: Text(ref.watch(previewLinesProvider).label),
             onTap: () async {
               final picked = await showDialog<PreviewLines>(
@@ -111,7 +122,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.format_size),
             title: const Text('Размер шрифта заметок'),
-            subtitle: Text('${ref.watch(noteFontSizeProvider).label} · Заголовки и текст в списке и редакторе'),
+            subtitle: Text('${ref.watch(noteFontSizeProvider).label} · Заголовки и текст'),
             onTap: () async {
               final picked = await showDialog<NoteFontSize>(
                 context: context,
@@ -129,10 +140,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (picked != null) ref.read(noteFontSizeProvider.notifier).set(picked);
             },
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.drag_indicator),
+          _SettingsSwitch(
+            icon: Icons.drag_indicator,
             title: const Text('Порядок вручную'),
-            subtitle: const Text('Заметки перетаскиваются долгим нажатием. Важные остаются сверху'),
+            subtitle: Text(Platform.isWindows ? 'Перетаскивайте мышью. Важные — сверху.' : 'Удерживайте для выбора, затем для переноса. Важные — сверху.'),
             value: ref.watch(manualOrderProvider),
             onChanged: (v) => ref.read(manualOrderProvider.notifier).set(v),
           ),
@@ -197,8 +208,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
           Text('Синхронизация', style: Theme.of(context).textTheme.titleSmall),
-          SwitchListTile(
-            title: const Text('Автоматическая синхронизация'),
+          _SettingsSwitch(
+            icon: Icons.sync,
+            title: const Text('Автосинхронизация'),
             value: status.autoSync,
             onChanged: (v) => sync.autoSync = v,
           ),
@@ -211,16 +223,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Порт: ${sync.port} · отпечаток ключа: ${sync.identity.fingerprint}',
+            'Порт: ${sync.port}\nОтпечаток ключа: ${sync.identity.fingerprint}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),
           Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
-           SwitchListTile(
-             secondary: const Icon(Icons.update),
-             title: const Text('Автопроверка обновлений'),
-             subtitle: const Text('При открытии приложения, не чаще одного раза в 6 часов'),
+            _SettingsSwitch(
+              icon: Icons.update,
+              title: const Text('Проверять обновления'),
+              subtitle: const Text('При открытии, не чаще одного раза в 6 часов.'),
              value: ref.watch(storeProvider).getSetting('updates_auto') != 'false',
              onChanged: (value) {
                ref.read(storeProvider).setSetting('updates_auto', '$value');
@@ -230,9 +242,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
            const UpdateCard(),
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
-          SwitchListTile(
-            title: const Text('Скачивать файлы автоматически'),
-            subtitle: const Text('Выключено: файлы скачиваются кнопкой в заметке'),
+          _SettingsSwitch(
+            icon: Icons.download_outlined,
+            title: const Text('Автозагрузка файлов'),
+            subtitle: const Text('Если выключено — загрузка по кнопке в заметке.'),
             value: sync.autoDownloadFiles,
             onChanged: (v) {
               ref.read(storeProvider).setSetting(SyncService.autoDownloadSetting, v ? 'true' : 'false');
@@ -241,13 +254,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.folder_outlined),
-            title: const Text('Папка для сохранения файлов'),
+            title: const Text('Папка сохранения'),
             subtitle: Text(
               (ref.watch(storeProvider).getSetting(AttachmentService.saveDirSetting) ?? '').isEmpty
                   ? 'Загрузки (по умолчанию)'
                   : ref.watch(storeProvider).getSetting(AttachmentService.saveDirSetting)!,
             ),
-            trailing: TextButton(onPressed: _pickSaveDir, child: const Text('Выбрать')),
+            onTap: _pickSaveDir,
+            trailing: const Icon(Icons.chevron_right, size: 20),
           ),
           if ((ref.read(storeProvider).getSetting(AttachmentService.saveDirSetting) ?? '').isNotEmpty)
             Align(
@@ -284,6 +298,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
           ),
         ],
+      ),
+      ),
+    );
+  }
+}
+
+/// Let explanations use the whole row instead of squeezing them between an
+/// icon and a switch. Text can still wrap naturally with accessibility scaling.
+class _SettingsSwitch extends StatelessWidget {
+  final IconData icon;
+  final Widget title;
+  final Widget? subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _SettingsSwitch({required this.icon, required this.title, this.subtitle,
+    required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MergeSemantics(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => onChanged(!value),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(icon, size: 22, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(child: DefaultTextStyle(
+                style: theme.textTheme.bodyMedium!.copyWith(fontWeight: FontWeight.w500),
+                child: title,
+              )),
+              const SizedBox(width: 8),
+              Switch(value: value, onChanged: onChanged),
+            ]),
+            if (subtitle != null) DefaultTextStyle(
+              style: theme.textTheme.bodySmall!.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.4),
+              child: subtitle!,
+            ),
+          ]),
+        ),
       ),
     );
   }

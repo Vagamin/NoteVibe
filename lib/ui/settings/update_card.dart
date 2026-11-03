@@ -159,10 +159,18 @@ class _UpdateCardState extends State<UpdateCard> {
       _Phase.failed => _error ?? 'Ошибка',
     };
 
-    return Column(
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(status, style: theme.textTheme.bodyMedium),
+        Row(children: [
+          Icon(Icons.system_update_alt, size: 22, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(child: Text(status, style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600))),
+        ]),
         if (_phase == _Phase.downloading) ...[
           const SizedBox(height: 8),
           LinearProgressIndicator(value: _progress > 0 ? _progress : null),
@@ -185,7 +193,7 @@ class _UpdateCardState extends State<UpdateCard> {
                 label: const Text('Установить', maxLines: 1, softWrap: false),
               )
             else
-              FilledButton.tonalIcon(
+               OutlinedButton.icon(
                 onPressed: busy ? null : _check,
                 icon: const Icon(Icons.refresh),
                 label: const FittedBox(
@@ -198,6 +206,8 @@ class _UpdateCardState extends State<UpdateCard> {
           ],
         ),
       ],
+    ),
+      ),
     );
   }
 }

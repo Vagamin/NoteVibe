@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
-import '../../app_version.dart';
 import '../../sync/sync_service.dart';
 import '../../update/update_service.dart';
 import '../attachments/attachment_service.dart';
@@ -71,35 +70,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           Text('Тема', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
-          LayoutBuilder(builder: (context, c) {
-            // Icons only when there is room; labels never wrap mid-word.
-            final withIcons = c.maxWidth >= 400 * MediaQuery.textScalerOf(context).scale(1);
-            ButtonSegment<ThemeMode> seg(ThemeMode m, String label, IconData icon) => ButtonSegment(
-                  value: m,
-                  icon: withIcons ? Icon(icon) : null,
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(label, maxLines: 1, softWrap: false),
-                  ),
-                );
-            return SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<ThemeMode>(
-                showSelectedIcon: false,
-                segments: [
-                  seg(ThemeMode.system, 'Системная', Icons.brightness_auto),
-                  seg(ThemeMode.light, 'Светлая', Icons.light_mode),
-                  seg(ThemeMode.dark, 'Тёмная', Icons.dark_mode),
+          _SettingsTile(
+            leading: const Icon(Icons.palette_outlined),
+            title: const Text('Оформление'),
+            subtitle: Text(switch (mode) { ThemeMode.system => 'Системная тема', ThemeMode.light => 'Светлая тема', ThemeMode.dark => 'Тёмная тема' }),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () async {
+              final picked = await showDialog<ThemeMode>(context: context, builder: (c) => SimpleDialog(
+                title: const Text('Тема приложения'),
+                children: [
+                  for (final entry in {ThemeMode.system: 'Системная', ThemeMode.light: 'Светлая', ThemeMode.dark: 'Тёмная'}.entries)
+                    SimpleDialogOption(onPressed: () => Navigator.pop(c, entry.key), child: Text(entry.value)),
                 ],
-                selected: {mode},
-                onSelectionChanged: (s) => ref.read(themeModeProvider.notifier).set(s.first),
-              ),
-            );
-          }),
+              ));
+              if (picked != null) ref.read(themeModeProvider.notifier).set(picked);
+            },
+          ),
           const SizedBox(height: 24),
           Text('Список заметок', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
-          ListTile(
+          _SettingsTile(
             leading: const Icon(Icons.view_headline_outlined),
             title: const Text('Предпросмотр заметок'),
             subtitle: Text(ref.watch(previewLinesProvider).label),
@@ -120,7 +110,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (picked != null) ref.read(previewLinesProvider.notifier).set(picked);
             },
           ),
-          ListTile(
+          _SettingsTile(
             leading: const Icon(Icons.format_size),
             title: const Text('Размер шрифта заметок'),
             subtitle: Text('${ref.watch(noteFontSizeProvider).label} · Заголовки и текст'),
@@ -149,7 +139,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (v) => ref.read(manualOrderProvider.notifier).set(v),
           ),
           if (Platform.isWindows)
-            ListTile(
+            _SettingsTile(
               leading: const Icon(Icons.mic_none),
               title: const Text('Микрофон для голосовых заметок'),
               subtitle: Text(ref.watch(captureDeviceProvider).isEmpty
@@ -186,7 +176,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 }
               },
             ),
-          ListTile(
+          _SettingsTile(
             leading: const Icon(Icons.delete_outline),
             title: const Text('Корзина'),
             subtitle: Text(ref.watch(trashPeriodProvider).label),
@@ -216,17 +206,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (v) => sync.autoSync = v,
           ),
           const SizedBox(height: 8),
-          TextField(
+          Card(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Имя устройства', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 10),
+                TextField(
             controller: _name,
-            decoration: const InputDecoration(labelText: 'Имя этого устройства'),
+            decoration: const InputDecoration(hintText: 'Введите имя', isDense: true),
             onSubmitted: (_) => _saveName(),
             onEditingComplete: _saveName,
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Порт: ${sync.port}\nОтпечаток ключа: ${sync.identity.fingerprint}',
-            style: Theme.of(context).textTheme.bodySmall,
+                const SizedBox(height: 10),
+                Text('Порт: ${sync.port}\nОтпечаток ключа: ${sync.identity.fingerprint}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              ]),
+            ),
           ),
+          const SizedBox(height: 8),
           const SizedBox(height: 24),
           Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
@@ -253,7 +252,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               setState(() {});
             },
           ),
-          ListTile(
+          _SettingsTile(
             leading: const Icon(Icons.folder_outlined),
             title: const Text('Папка сохранения'),
             subtitle: Text(
@@ -289,7 +288,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             spacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text('Версия $appVersion', style: Theme.of(context).textTheme.bodySmall),
               TextButton.icon(
                 style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
                 onPressed: () => UpdateService.openUrl('https://github.com/Vagamin/NoteVibe'),
@@ -307,6 +305,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
 /// Let explanations use the whole row instead of squeezing them between an
 /// icon and a switch. Text can still wrap naturally with accessibility scaling.
+class _SettingsTile extends StatelessWidget {
+  final Widget leading;
+  final Widget title;
+  final Widget? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  const _SettingsTile({required this.leading, required this.title, this.subtitle, this.trailing, this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.symmetric(vertical: 4),
+    child: ListTile(leading: leading, title: title, subtitle: subtitle, trailing: trailing, onTap: onTap),
+  );
+}
+
 class _SettingsSwitch extends StatelessWidget {
   final IconData icon;
   final Widget title;

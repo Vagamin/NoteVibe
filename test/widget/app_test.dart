@@ -211,6 +211,8 @@ void main() {
     await pumpApp(tester, s);
     await tester.tap(find.byTooltip('Настройки'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Оформление'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Тёмная'));
     await tester.pumpAndSettle();
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));

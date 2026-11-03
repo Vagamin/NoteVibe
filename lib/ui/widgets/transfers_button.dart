@@ -23,7 +23,17 @@ class TransfersButton extends ConsumerWidget {
           onPressed: () => showDialog<void>(
             context: context,
             builder: (context) => AlertDialog(
-              title: const Text('Загрузки файлов'),
+              title: Row(children: [
+                const Expanded(child: Text('Загрузки файлов')),
+                StreamBuilder<void>(
+                  stream: sync.transferEvents,
+                  builder: (context, _) => IconButton(
+                    tooltip: 'Очистить завершённые',
+                    icon: const Icon(Icons.playlist_remove_rounded, size: 22),
+                    onPressed: sync.transfers.values.any((t) => !t.active) ? sync.clearFinishedTransfers : null,
+                  ),
+                ),
+              ]),
               content: SizedBox(
                 width: 420,
                 child: StreamBuilder<void>(

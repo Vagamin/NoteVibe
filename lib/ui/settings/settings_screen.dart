@@ -220,7 +220,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
            SwitchListTile(
              secondary: const Icon(Icons.update),
              title: const Text('Автопроверка обновлений'),
-             subtitle: const Text('При открытии приложения, не чаще раза в 6 часов'),
+             subtitle: const Text('При открытии приложения, не чаще одного раза в 6 часов'),
              value: ref.watch(storeProvider).getSetting('updates_auto') != 'false',
              onChanged: (value) {
                ref.read(storeProvider).setSetting('updates_auto', '$value');

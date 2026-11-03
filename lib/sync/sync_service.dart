@@ -64,6 +64,11 @@ class SyncService {
   Stream<void> get transferEvents => _transferEvents.stream;
   final _downloads = <String, Future<void>>{};
 
+  void clearFinishedTransfers() {
+    transfers.removeWhere((_, transfer) => !transfer.active);
+    _transferEvents.add(null);
+  }
+
   void _transfer(Attachment a, int received, String status) {
     transfers[a.sha256] = FileTransfer(a, received, status);
     if (transfers.length > 50) {

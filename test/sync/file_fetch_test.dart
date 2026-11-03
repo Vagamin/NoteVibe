@@ -84,6 +84,8 @@ void main() {
     expect(received.any((n) => n > 0 && n < bytes.length), isTrue);
     expect(phone.transfers[hash]!.status, 'Загружено');
     expect(phone.transfers[hash]!.received, bytes.length);
+    phone.clearFinishedTransfers();
+    expect(phone.transfers, isEmpty);
     expect(phoneFiles.has(hash), isTrue);
     expect(await phoneFiles.fileFor(hash).readAsBytes(), bytes);
   });

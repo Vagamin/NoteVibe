@@ -7,6 +7,8 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../domain/attachment.dart';
 import '../attachments/attachment_service.dart';
+import '../providers.dart';
+import '../../sync/sync_service.dart';
 import 'voice_service.dart';
 
 /// Id of the recording that plays now. Starting one pauses the others.
@@ -50,10 +52,16 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
   Duration _len = Duration.zero;
   String? _path;
   String? _error;
+  bool _loadingDuration = false;
 
   @override
   void initState() {
     super.initState();
+    _subs.add(widget.svc.sync.transferEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {});
+      if (_path == null && !_loadingDuration && widget.svc.files.has(widget.attachment.sha256)) _loadDuration();
+    }));
     _subs.add(_player.playerStateStream.listen((s) {
       if (!mounted) return;
       final done = s.processingState == ProcessingState.completed;
@@ -82,11 +90,15 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
   /// Reads the length once so the time shows before the first play.
   Future<void> _loadDuration() async {
     if (!widget.svc.files.has(widget.attachment.sha256)) return;
+    if (_loadingDuration) return;
+    _loadingDuration = true;
     try {
       _path ??= await widget.svc.playablePath(widget.attachment);
       await _player.setFilePath(_path!);
     } catch (_) {
       // Length stays unknown; playing the recording still reports the error.
+    } finally {
+      _loadingDuration = false;
     }
   }
 
@@ -140,6 +152,9 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
     final scheme = Theme.of(context).colorScheme;
     final a = widget.attachment;
     final present = widget.svc.files.has(a.sha256);
+    final transfer = widget.svc.sync.transfers[a.sha256];
+    final downloading = transfer?.active ?? false;
+    final syncing = (ref.watch(syncStatusProvider).value ?? widget.svc.sync.currentStatus).state == SyncState.syncing;
     final total = _len.inMilliseconds == 0 ? 1 : _len.inMilliseconds;
     final progress = (_pos.inMilliseconds / total).clamp(0.0, 1.0).toDouble();
     final compact = widget.compact;
@@ -151,11 +166,18 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
-        onTap: present ? _toggle : (widget.remoteHeld ? widget.onDownload : null),
+        onTap: downloading ? null : present ? _toggle : (widget.remoteHeld ? widget.onDownload : null),
         child: SizedBox(
           width: buttonSize,
           height: buttonSize,
-          child: Icon(
+          child: downloading ? Padding(
+            padding: EdgeInsets.all(compact ? 8 : 10),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: scheme.onSurfaceVariant,
+              value: transfer!.status == 'Проверка файла' || a.size == 0 ? null : (transfer.received / a.size).clamp(0.0, 1.0),
+            ),
+          ) : Icon(
             !present
                 ? (widget.remoteHeld ? Icons.download : Icons.error_outline)
                 : (_playing ? Icons.pause : Icons.play_arrow),
@@ -192,8 +214,10 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
       ),
     );
 
-    final caption = !present
-        ? (widget.remoteHeld ? 'На другом устройстве' : 'Нет на устройстве')
+    final caption = downloading
+        ? (transfer!.status == 'Проверка файла' ? 'Проверка…' : 'Загрузка ${(transfer.received * 100 / (a.size == 0 ? 1 : a.size)).floor()}%')
+        : !present
+        ? (transfer?.status == 'Ошибка загрузки' ? 'Ошибка загрузки' : widget.remoteHeld ? 'Доступна загрузка' : syncing ? 'Синхронизация…' : 'Файл не загружен')
         : '${_fmt(_pos)} / ${_fmt(_len)}';
 
     final timeText = Text(
@@ -203,7 +227,7 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
       overflow: TextOverflow.visible,
       textAlign: TextAlign.right,
       style: TextStyle(
-        color: _error != null || !present ? scheme.error : scheme.outline,
+        color: _error != null || transfer?.status == 'Ошибка загрузки' ? scheme.error : scheme.onSurfaceVariant,
         fontSize: compact ? 10.5 : 11,
         fontFeatures: const [FontFeature.tabularFigures()],
       ),

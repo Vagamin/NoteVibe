@@ -72,7 +72,18 @@ void main() {
     final a = phone.store.attachmentsFor(note.id).single;
     expect(phoneFiles.has(hash), isFalse);
 
-    await phone.fetchAttachment(a);
+    final received = <int>[];
+    final sub = phone.transferEvents.listen((_) {
+      received.add(phone.transfers[hash]!.received);
+    });
+    final download = phone.fetchAttachment(a);
+    expect(identical(download, phone.fetchAttachment(a)), isTrue);
+    await download;
+    await Future<void>.delayed(Duration.zero);
+    await sub.cancel();
+    expect(received.any((n) => n > 0 && n < bytes.length), isTrue);
+    expect(phone.transfers[hash]!.status, 'Загружено');
+    expect(phone.transfers[hash]!.received, bytes.length);
     expect(phoneFiles.has(hash), isTrue);
     expect(await phoneFiles.fileFor(hash).readAsBytes(), bytes);
   });
@@ -94,6 +105,7 @@ void main() {
     await pcFiles.delete(hash);
     final a = phone.store.attachmentsFor(note.id).single;
     await expectLater(phone.fetchAttachment(a), throwsA(isA<PairingException>()));
+    expect(phone.transfers[hash]!.status, 'Ошибка загрузки');
     expect(phoneFiles.has(hash), isFalse);
   });
 

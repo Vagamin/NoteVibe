@@ -38,7 +38,7 @@ Future<void> serveAttachment(SecureChannel ch, AttachmentStorage? files) async {
 
 /// Downloads [a] over a `fetch` session, verifies the SHA-256 and stores it.
 /// Nothing is stored unless the hash matches.
-Future<void> requestAttachment(SecureChannel ch, Attachment a, AttachmentStorage files) async {
+Future<void> requestAttachment(SecureChannel ch, Attachment a, AttachmentStorage files, {void Function(int received)? onProgress}) async {
   await ch.send({'t': 'get', 'sha': a.sha256});
   final head = await ch.receive(timeout: const Duration(seconds: 15));
   if (head['t'] == 'error') throw AttachmentMissingError();
@@ -57,6 +57,7 @@ Future<void> requestAttachment(SecureChannel ch, Attachment a, AttachmentStorage
     if (m['t'] != 'chunk') throw SyncProtocolException('неожиданный кадр: ${m['t']}');
     out.add(base64Decode(m['d'] as String));
     if (out.length > size) throw SyncProtocolException('файл больше ожидаемого');
+    onProgress?.call(out.length);
   }
   final bytes = out.takeBytes();
   if (bytes.length != size) throw SyncProtocolException('файл получен не полностью');

@@ -16,6 +16,14 @@ import 'transport/frame_channel.dart';
 
 enum SyncState { synced, syncing, offline, conflict }
 
+class FileTransfer {
+  final Attachment attachment;
+  final int received;
+  final String status;
+  const FileTransfer(this.attachment, this.received, this.status);
+  bool get active => status == 'Загрузка' || status == 'Проверка файла';
+}
+
 class SyncStatus {
   final SyncState state;
   final bool autoSync;
@@ -51,6 +59,19 @@ class PairingException implements Exception {
 /// Orchestrates LAN sync: TCP server, discovery, pairing and automatic
 /// sync sessions with retries. Pure Dart, so it is testable without Flutter.
 class SyncService {
+  final transfers = <String, FileTransfer>{};
+  final _transferEvents = StreamController<void>.broadcast();
+  Stream<void> get transferEvents => _transferEvents.stream;
+  final _downloads = <String, Future<void>>{};
+
+  void _transfer(Attachment a, int received, String status) {
+    transfers[a.sha256] = FileTransfer(a, received, status);
+    if (transfers.length > 50) {
+      final finished = transfers.keys.where((key) => !transfers[key]!.active && key != a.sha256).toList();
+      if (finished.isNotEmpty) transfers.remove(finished.first);
+    }
+    _transferEvents.add(null);
+  }
   static const preferredPort = 47801;
 
   final NoteStore store;
@@ -181,12 +202,13 @@ class SyncService {
 
   Future<void> dispose() async {
     await stop();
-    while (_active.isNotEmpty || _incoming > 0) {
+    while (_active.isNotEmpty || _incoming > 0 || _downloads.isNotEmpty) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     await _statusCtl.close();
     await _discoveredCtl.close();
     await _offerEvents.close();
+    await _transferEvents.close();
   }
 
   void rename(String name) {
@@ -352,7 +374,24 @@ class SyncService {
 
   /// Downloads the bytes of [a] from the first paired device that has them.
   /// Throws if no reachable device has the file.
-  Future<void> fetchAttachment(Attachment a) async {
+  Future<void> fetchAttachment(Attachment a) {
+    return _downloads.putIfAbsent(a.sha256, () => _trackedFetch(a).whenComplete(() {
+      _downloads.remove(a.sha256);
+    }));
+  }
+
+  Future<void> _trackedFetch(Attachment a) async {
+    _transfer(a, 0, 'Загрузка');
+    try {
+      await _fetchAttachment(a);
+      _transfer(a, a.size, 'Загружено');
+    } catch (_) {
+      _transfer(a, transfers[a.sha256]?.received ?? 0, 'Ошибка загрузки');
+      rethrow;
+    }
+  }
+
+  Future<void> _fetchAttachment(Attachment a) async {
     final storeFiles = files;
     if (storeFiles == null) throw PairingException('Хранилище файлов недоступно');
     Object? lastErr;
@@ -362,11 +401,13 @@ class SyncService {
       final key = await peerKeys.get(p.deviceId);
       if (key == null) continue;
       try {
+        _transfer(a, 0, 'Загрузка');
         final ch = await SocketFrameChannel.connect(addr.$1, addr.$2);
         final sc = await initiateHandshake(ch, identity,
             mode: HandshakeMode.fetch, expectedId: p.deviceId, expectedKey: key);
         try {
-          await requestAttachment(sc, a, storeFiles);
+          await requestAttachment(sc, a, storeFiles, onProgress: (received) =>
+            _transfer(a, received, received == a.size ? 'Проверка файла' : 'Загрузка'));
         } finally {
           await sc.close();
         }

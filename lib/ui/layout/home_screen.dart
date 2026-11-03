@@ -14,6 +14,9 @@ import '../settings/settings_screen.dart';
 import '../theme/app_theme.dart';
 import '../trash/trash_screen.dart';
 import '../widgets/sync_status_chip.dart';
+import '../widgets/transfers_button.dart';
+import '../../update/update_service.dart';
+import '../../app_version.dart';
 
 /// Adaptive root: list + editor side-by-side on wide screens,
 /// list -> editor navigation on phones.
@@ -25,11 +28,14 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   final _searchFocus = FocusNode();
+  bool _checkingUpdate = false;
+  String? _notifiedVersion;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpdate());
   }
 
   @override
@@ -41,7 +47,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) ref.read(syncProvider).wakeUp();
+    if (state == AppLifecycleState.resumed) {
+      ref.read(syncProvider).wakeUp();
+      _checkUpdate();
+    }
+  }
+
+  Future<void> _checkUpdate() async {
+    if (!mounted || _checkingUpdate) return;
+    final store = ref.read(storeProvider);
+    if (store.getSetting('updates_auto') == 'false') return;
+    final last = int.tryParse(store.getSetting('updates_last_check') ?? '') ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - last < const Duration(hours: 6).inMilliseconds) return;
+    _checkingUpdate = true;
+    store.setSetting('updates_last_check', '$now');
+    try {
+      final release = await UpdateService.fetchLatest().timeout(const Duration(seconds: 20));
+      if (!mounted || store.getSetting('updates_auto') == 'false' || !UpdateService.isNewer(release.version, appVersion) || _notifiedVersion == release.version) return;
+      _notifiedVersion = release.version;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(seconds: 12),
+        content: Text('Доступна новая версия NoteVibe ${release.version}'),
+        action: SnackBarAction(label: 'Открыть', onPressed: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+      ));
+    } catch (_) {
+      // A failed background check must not interrupt editing or offline use.
+    } finally {
+      _checkingUpdate = false;
+    }
   }
 
   void _newNote(bool wide) {
@@ -140,6 +175,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       const SizedBox(width: 8),
       ] else ...[
         SyncStatusChip(status: status, compact: true, onTap: () => _onStatusTap(status)),
+        const TransfersButton(),
         PopupMenuButton<String>(
           tooltip: 'Меню',
           position: PopupMenuPosition.under,
@@ -182,6 +218,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       ],
       if (wide) ...[
       SyncStatusChip(status: status, compact: !wide, onTap: () => _onStatusTap(status)),
+      const TransfersButton(),
       const SizedBox(width: 8),
       IconButton(
         tooltip: 'Устройства',

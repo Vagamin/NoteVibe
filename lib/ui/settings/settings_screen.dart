@@ -217,7 +217,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
-          const UpdateCard(),
+           SwitchListTile(
+             secondary: const Icon(Icons.update),
+             title: const Text('Автопроверка обновлений'),
+             subtitle: const Text('При открытии приложения, не чаще раза в 6 часов'),
+             value: ref.watch(storeProvider).getSetting('updates_auto') != 'false',
+             onChanged: (value) {
+               ref.read(storeProvider).setSetting('updates_auto', '$value');
+               setState(() {});
+             },
+           ),
+           const UpdateCard(),
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
           SwitchListTile(

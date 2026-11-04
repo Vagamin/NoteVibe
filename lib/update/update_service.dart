@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'package:crypto/crypto.dart';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -23,7 +24,8 @@ class ReleaseAsset {
   final String name;
   final String url;
   final int size;
-  const ReleaseAsset({required this.name, required this.url, required this.size});
+  final String? digest;
+  const ReleaseAsset({required this.name, required this.url, required this.size, this.digest});
 }
 
 class Release {
@@ -42,7 +44,8 @@ class Release {
             ReleaseAsset(
               name: a['name'] as String,
               url: a['browser_download_url'] as String,
-              size: (a['size'] as num?)?.toInt() ?? 0,
+               size: (a['size'] as num?)?.toInt() ?? 0,
+               digest: a['digest'] as String?,
             ),
         ],
       );
@@ -60,6 +63,7 @@ class UpdateService {
       final req = await client
           .getUrl(Uri.parse('https://api.github.com/repos/$updateRepo/releases/latest'));
       req.headers
+        ..set(HttpHeaders.cacheControlHeader, 'no-cache')
         ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
         ..set(HttpHeaders.userAgentHeader, 'NoteVibe/$appVersion');
       final res = await req.close();
@@ -125,11 +129,24 @@ class UpdateService {
     final file = File(p.join(dir.path, a.name));
     TemporaryCache.retain(file.path);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    Future<bool> valid() async {
+      if (!await file.exists()) return false;
+      if (a.size > 0 && await file.length() != a.size) return false;
+      final expected = a.digest;
+      if (expected != null && expected.startsWith('sha256:')) {
+        return (await sha256.bind(file.openRead()).first).toString() == expected.substring(7).toLowerCase();
+      }
+      return true;
+    }
     try {
       for (var attempt = 0; attempt < 6; attempt++) {
         try {
           var got = await file.exists() ? await file.length() : 0;
-          if (a.size > 0 && got == a.size) return file;
+          if (a.size > 0 && got == a.size) {
+            if (await valid()) return file;
+            await file.delete();
+            got = 0;
+          }
           if (a.size > 0 && got > a.size) { await file.delete(); got = 0; }
           final req = await client.getUrl(Uri.parse(a.url));
           req.headers.set(HttpHeaders.userAgentHeader, 'NoteVibe/$appVersion');
@@ -162,6 +179,10 @@ class UpdateService {
           }
           if (a.size > 0 && await file.length() != a.size) {
             throw const UpdateException('Загрузка прервана. Продолжаем скачивание…');
+          }
+          if (!await valid()) {
+            await file.delete();
+            throw const UpdateException('Файл обновления повреждён. Скачиваем заново.');
           }
           return file;
         } catch (_) {

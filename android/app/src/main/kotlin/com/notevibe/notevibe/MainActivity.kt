@@ -48,9 +48,15 @@ class MainActivity : FlutterActivity() {
                     "installApk" -> {
                         try {
                             val file = File(call.argument<String>("path") ?: throw IllegalArgumentException("path"))
+                            require(file.isFile && file.length() > 0) { "Файл обновления отсутствует или пуст" }
+                            val archive = packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+                            require(archive != null && archive.packageName == packageName) {
+                                "APK повреждён или принадлежит другому приложению. Скачайте обновление заново."
+                            }
                             val uri = FileProvider.getUriForFile(this, "$packageName.updates", file)
                             val intent = Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(uri, "application/vnd.android.package-archive")
+                                clipData = android.content.ClipData.newRawUri("NoteVibe update", uri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                             startActivity(intent)

@@ -93,14 +93,21 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
   }
 
   Future<void> _install() async {
-    final asset = _asset;
-    if (asset == null) return;
+    if (_asset == null) return;
     setState(() {
       _phase = _Phase.downloading;
       _progress = 0;
       _error = null;
     });
     try {
+      // Recheck at install time: the settings page may have stayed open while
+      // newer releases were published. Updates are full packages, not patches.
+      final latest = await UpdateService.fetchLatest();
+      final abi = Platform.isAndroid ? await UpdateService.androidAbi() : '';
+      final asset = UpdateService.pickAsset(latest, abi: abi);
+      if (asset == null) throw const UpdateException('Нет файла обновления для этого устройства.');
+      _release = latest;
+      _asset = asset;
       if (Platform.isAndroid) {
         if (!await UpdateService.canInstallApks()) {
           if (!mounted) return;

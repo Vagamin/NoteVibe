@@ -9,6 +9,7 @@ import '../../domain/attachment.dart';
 import '../attachments/attachment_service.dart';
 import '../providers.dart';
 import '../../sync/sync_service.dart';
+import '../../data/temporary_cache.dart';
 import 'voice_service.dart';
 
 /// Id of the recording that plays now. Starting one pauses the others.
@@ -53,6 +54,14 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
   String? _path;
   String? _error;
   bool _loadingDuration = false;
+  bool _cacheReleased = false;
+
+  void _releaseCache() {
+    if (_path != null && !_cacheReleased) {
+      _cacheReleased = true;
+      TemporaryCache.release(_path!);
+    }
+  }
 
   @override
   void initState() {
@@ -94,6 +103,7 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
     _loadingDuration = true;
     try {
       _path ??= await widget.svc.playablePath(widget.attachment);
+      if (!mounted) { _releaseCache(); return; }
       await _player.setFilePath(_path!);
     } catch (_) {
       // Length stays unknown; playing the recording still reports the error.
@@ -108,7 +118,7 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
       s.cancel();
     }
     _wave.dispose();
-    _player.dispose();
+    _player.dispose().whenComplete(_releaseCache);
     super.dispose();
   }
 
@@ -118,7 +128,9 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
       return;
     }
     try {
+      if (_loadingDuration) return;
       _path ??= await widget.svc.playablePath(widget.attachment);
+      if (!mounted) { _releaseCache(); return; }
       ref.read(activeVoiceProvider.notifier).set(widget.attachment.id);
       if (_player.audioSource == null) {
         await _player.setFilePath(_path!);
@@ -320,44 +332,72 @@ class _WavePainter extends CustomPainter {
 /// older ones move left, so the row looks like the voice is being drawn.
 /// Bars shown while recording. The painter redraws on every audio chunk, so the
 /// bars move with the voice.
-class RecordingWave extends StatelessWidget {
+class RecordingWave extends StatefulWidget {
   final VoiceService service;
   final Color color;
 
   const RecordingWave({super.key, required this.service, required this.color});
 
   @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: const Size(double.infinity, 28),
-      painter: _LevelPainter(service: service, color: color),
-    );
+  State<RecordingWave> createState() => _RecordingWaveState();
+}
+
+class _RecordingWaveState extends State<RecordingWave> with SingleTickerProviderStateMixin {
+  late final AnimationController _motion;
+  double _signal = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _motion = AnimationController(vsync: this, duration: const Duration(milliseconds: 3600))..addListener(_tick)..repeat();
   }
+
+  void _tick() {
+    final recent = widget.service.history.reversed.take(8);
+    final average = recent.isEmpty ? 0.0 : recent.reduce((a, b) => a + b) / recent.length;
+    // Gate quiet background noise; show a clear, stable signal, not raw peaks.
+    final target = average > 0.38 ? 1.0 : 0.0;
+    _signal += (target - _signal) * (target > _signal ? 0.12 : 0.04);
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 48,
+    child: CustomPaint(painter: _LevelPainter(phase: _motion.value, signal: _signal, color: widget.color)),
+  );
 }
 
 class _LevelPainter extends CustomPainter {
-  final VoiceService service;
+  final double phase;
+  final double signal;
   final Color color;
 
-  _LevelPainter({required this.service, required this.color}) : super(repaint: service.chunks);
+  _LevelPainter({required this.phase, required this.signal, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final values = service.history;
-    final n = values.length;
+    final n = math.max(1, (size.width / 7).floor());
     final step = size.width / n;
     final paint = Paint()
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = math.min(3.0, step * 0.6)
+      ..strokeWidth = math.min(4.0, step * 0.6)
       ..color = color;
     final mid = size.height / 2;
     for (var i = 0; i < n; i++) {
-      final h = math.max(3.0, size.height * values[i]);
+      final wave = (math.sin(i * 0.65 - phase * math.pi * 2) + 1) / 2;
+      final h = 4 + signal * (size.height - 8) * (0.35 + 0.65 * wave);
       final x = step * i + step / 2;
       canvas.drawLine(Offset(x, mid - h / 2), Offset(x, mid + h / 2), paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _LevelPainter old) => old.color != color;
+  bool shouldRepaint(covariant _LevelPainter old) => old.color != color || old.phase != phase || old.signal != signal;
 }

@@ -10,6 +10,7 @@ import '../attachments/attachment_service.dart';
 import '../providers.dart';
 import '../voice/voice_panel.dart';
 import 'update_card.dart';
+import '../cache_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -19,11 +20,38 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _name;
+  int? _cacheBytes;
+  bool _clearingCache = false;
+
+  Future<void> _refreshCache() async {
+    try {
+      final bytes = await (await temporaryCache()).sizeBytes();
+      if (mounted) setState(() => _cacheBytes = bytes);
+    } catch (_) { /* The screen still works if temp storage is unavailable. */ }
+  }
+
+  Future<void> _clearCache() async {
+    setState(() => _clearingCache = true);
+    try {
+      await (await temporaryCache()).clean(all: true);
+      await _refreshCache();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Неиспользуемые временные файлы удалены. Защищённые файлы оставлены.'),
+      ));
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Не удалось очистить временные файлы. Попробуйте позже.')));
+    } finally {
+      if (mounted) setState(() => _clearingCache = false);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _name = TextEditingController(text: ref.read(syncProvider).identity.name);
+    _refreshCache();
   }
 
   @override
@@ -108,6 +136,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               );
               if (picked != null) ref.read(previewLinesProvider.notifier).set(picked);
+            },
+          ),
+          _SettingsTile(
+            leading: const Icon(Icons.graphic_eq),
+            title: const Text('Предпросмотр голосовых'),
+            subtitle: Text(ref.watch(voicePreviewProvider).label),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () async {
+              final current = ref.read(voicePreviewProvider);
+              final picked = await showDialog<VoicePreview>(context: context, builder: (c) => SimpleDialog(
+                title: const Text('Записи в карточке заметки'),
+                children: [for (final value in VoicePreview.values)
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(c, value),
+                    child: Row(children: [Expanded(child: Text(value.label)), if (current == value) const Icon(Icons.check, size: 20)]),
+                  ),
+                ],
+              ));
+              if (picked != null) ref.read(voicePreviewProvider.notifier).set(picked);
             },
           ),
           _SettingsTile(
@@ -274,6 +321,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: const Text('Вернуть «Загрузки»'),
               ),
             ),
+          const SizedBox(height: 24),
+          Text('Хранилище', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          _SettingsTile(
+            leading: const Icon(Icons.cleaning_services_outlined),
+            title: const Text('Временные файлы'),
+            subtitle: Text('${_cacheBytes == null ? 'Подсчёт…' : '${(_cacheBytes! / 1048576).toStringAsFixed(1)} МБ'}\nАвтоочистка раз в сутки, целевой лимит 50 МБ.\nАктивные файлы и установщики защищены.\nЗаметки и вложения не удаляются.'),
+            trailing: IconButton(
+              tooltip: 'Очистить временные файлы',
+              onPressed: _clearingCache || _cacheBytes == null ? null : _clearCache,
+              icon: _clearingCache ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.delete_sweep_outlined),
+            ),
+          ),
           const SizedBox(height: 24),
           Text('О программе', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../data/attachment_storage.dart';
 import '../../data/note_store.dart';
+import '../../data/temporary_cache.dart';
 import '../../domain/attachment.dart';
 import '../../sync/sync_service.dart';
 
@@ -54,16 +55,28 @@ class AttachmentService {
     final dir = await getTemporaryDirectory();
     final ext = p.extension(a.name).isEmpty ? '.bin' : p.extension(a.name);
     final out = File(p.join(dir.path, 'notevibe_play', '${a.sha256}$ext'));
-    if (!await out.exists()) await files.exportTo(a.sha256, out);
-    return out.path;
+    TemporaryCache.retain(out.path);
+    try {
+      if (!await out.exists()) await files.exportTo(a.sha256, out);
+      return out.path;
+    } catch (_) {
+      TemporaryCache.release(out.path);
+      rethrow;
+    }
   }
 
   Future<void> open(Attachment a) async {
     final file = files.fileFor(a.sha256);
     if (!await file.exists()) throw const FileSystemException('Файл не найден на этом устройстве');
     final tmp = File(p.join(Directory.systemTemp.path, 'notevibe_open', a.name));
-    await files.exportTo(a.sha256, tmp);
-    await OpenFilex.open(tmp.path, type: a.mime.isEmpty ? null : a.mime);
+    TemporaryCache.retain(tmp.path);
+    try {
+      await files.exportTo(a.sha256, tmp);
+      await OpenFilex.open(tmp.path, type: a.mime.isEmpty ? null : a.mime);
+      TemporaryCache.protectFor(tmp.path, const Duration(days: 1));
+    } finally {
+      TemporaryCache.release(tmp.path);
+    }
   }
 
   /// Saves a copy. If the user set a folder in settings, writes there directly;

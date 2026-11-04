@@ -24,6 +24,18 @@ class DownloadingNotifier extends Notifier<Set<String>> {
 
 final downloadingProvider = NotifierProvider<DownloadingNotifier, Set<String>>(DownloadingNotifier.new);
 
+Future<void> addNoteAttachments(BuildContext context, WidgetRef ref, String noteId) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final result = await ref.read(attachmentServiceProvider).pickAndAttach(noteId);
+    if (result.failed.isNotEmpty) {
+      messenger.showSnackBar(SnackBar(content: Text(result.failed.join('\n'))));
+    }
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('Не удалось добавить файл: $e')));
+  }
+}
+
 /// Attachments of one note: add, open, download, save a copy, delete.
 ///
 /// Status dot: green = file is on this device, grey = file is missing here.
@@ -73,22 +85,27 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
     final noteId = widget.noteId;
     final store = ref.watch(storeProvider);
     final svc = ref.watch(attachmentServiceProvider);
-    final scheme = Theme.of(context).colorScheme;
     // Rebuild when attachments or notes change.
     ref.watch(storeChangesProvider);
     final busy = ref.watch(downloadingProvider);
     final items = store.attachmentsFor(noteId).where((a) => !(widget.skipAudio && a.mime.startsWith('audio/'))).toList();
     final selecting = _selected != null;
+    if (items.isEmpty) return const SizedBox.shrink();
 
-    return Column(
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(children: [
-          Expanded(child: Text('Вложения', style: Theme.of(context).textTheme.titleSmall)),
+          Expanded(child: Text('Вложения · ${items.length}', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600))),
           if (items.isNotEmpty && !selecting)
-            TextButton(
+            IconButton(
+              tooltip: 'Выбрать вложения',
               onPressed: () => setState(() => _selected = {}),
-              child: const Text('Выбрать'),
+              icon: const Icon(Icons.checklist_outlined),
             ),
           if (selecting)
             TextButton(
@@ -96,26 +113,21 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
               child: const Text('Готово'),
             ),
           if (!selecting)
-            TextButton.icon(
+            IconButton(
+              tooltip: 'Добавить вложения',
               onPressed: () => _add(context, svc),
-              icon: const Icon(Icons.attach_file, size: 18),
-              label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Добавить', maxLines: 1, softWrap: false)),
+              icon: const Icon(Icons.add, size: 20),
             ),
         ]),
         if (selecting)
-          Row(children: [
-            Expanded(child: Text('Выбрано: ${_selected!.length}')),
+          Wrap(alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.center, spacing: 8, children: [
+            Text('Выбрано: ${_selected!.length}'),
             TextButton.icon(
               onPressed: _selected!.isEmpty ? null : () => _bulkDelete(svc, items),
               icon: const Icon(Icons.delete_outline, size: 18),
               label: const Text('Удалить выбранные'),
             ),
           ]),
-        if (items.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Text('Фото и файлы до 50 МБ', style: TextStyle(color: scheme.outline)),
-          ),
         for (final a in items)
           _AttachmentTile(
             attachment: a,
@@ -133,6 +145,8 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
             onTapSelect: selecting ? () => _toggle(a.id) : null,
           ),
       ],
+        ),
+      ),
     );
   }
 
@@ -242,11 +256,17 @@ class _AttachmentTile extends StatelessWidget {
         : remoteHeld
             ? 'Файл есть на другом устройстве'
             : 'Файла нет ни на одном устройстве';
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+      borderRadius: BorderRadius.circular(16),
       onTap: onTapSelect ?? (present ? onOpen : null),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
         child: Row(children: [
           if (checked != null) ...[
             SelectDot(checked: checked!),
@@ -284,8 +304,11 @@ class _AttachmentTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(attachment.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(attachment.sizeLabel, style: Theme.of(context).textTheme.bodySmall),
+                Text(attachment.name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text('${attachment.sizeLabel} · ${present ? 'На устройстве' : remoteHeld ? 'Удалённо' : 'Недоступен'}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
               ],
             ),
           ),
@@ -300,6 +323,11 @@ class _AttachmentTile extends StatelessWidget {
             ),
           PopupMenuButton<String>(
             tooltip: 'Действия',
+            position: PopupMenuPosition.under,
+            menuPadding: const EdgeInsets.all(8),
+            color: Theme.of(context).cardTheme.color,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             onSelected: (v) {
               switch (v) {
                 case 'open':
@@ -324,6 +352,8 @@ class _AttachmentTile extends StatelessWidget {
             ],
           ),
         ]),
+      ),
+        ),
       ),
     );
   }

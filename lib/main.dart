@@ -7,6 +7,8 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'ui/layout/home_screen.dart';
 import 'ui/providers.dart';
 import 'ui/theme/app_theme.dart';
+import 'ui/cache_service.dart';
+import 'dart:async';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +19,15 @@ Future<void> main(List<String> args) async {
       overrides: [servicesProvider.overrideWithValue(services)],
       child: const NoteVibeApp(),
     ));
+    unawaited(() async {
+      try {
+        final last = int.tryParse(services.store.getSetting('cache_last_clean') ?? '') ?? 0;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final due = now - last >= const Duration(days: 1).inMilliseconds;
+        await (await temporaryCache()).clean(maintenance: due);
+        if (due) services.store.setSetting('cache_last_clean', '$now');
+      } catch (_) { /* Cache maintenance must never block startup. */ }
+    }());
   } catch (e, st) {
     runApp(_StartupError(error: '$e\n\n$st'));
   }

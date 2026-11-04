@@ -157,24 +157,28 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
                 color: scheme.errorContainer,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Row(children: [
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
                 Icon(Icons.fiber_manual_record, color: scheme.error, size: 18),
                 const SizedBox(width: 8),
                 Text(_format(_elapsed), style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: RecordingWave(
+                const Expanded(child: Text('Идёт запись')),
+                ]),
+                const SizedBox(height: 8),
+                RecordingWave(
                     service: ref.read(voiceServiceProvider),
                     color: scheme.error,
-                  ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(height: 8),
+                Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 8, children: [
                 TextButton(onPressed: _cancel, child: const Text('Отмена')),
                 FilledButton.icon(
                   onPressed: _stop,
                   icon: const Icon(Icons.stop),
                   label: const Text('Стоп'),
                 ),
+                ]),
               ]),
             )
           else if (!mobile)

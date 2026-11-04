@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../data/note_store.dart';
 import '../../domain/note.dart';
@@ -13,8 +12,8 @@ import '../conflicts/conflict_screen.dart';
 import '../attachments/attachments_panel.dart';
 import '../providers.dart';
 import '../voice/voice_panel.dart';
+import '../widgets/note_info_button.dart';
 
-final _dateFmt = DateFormat('d MMM yyyy, HH:mm', 'ru');
 
 /// Editor for a single note with debounced autosave.
 ///
@@ -171,7 +170,6 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   @override
   Widget build(BuildContext context) {
     final note = _note;
-    final scheme = Theme.of(context).colorScheme;
     if (note == null || note.deleted) {
       return const Center(child: Text('Заметка удалена'));
     }
@@ -190,6 +188,13 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               padding: const EdgeInsets.fromLTRB(24, 12, 16, 0),
               child: Row(children: [
                 Expanded(child: note.isVoice ? const SizedBox.shrink() : toolbar),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Добавить вложения',
+                  icon: const Icon(Icons.attach_file),
+                  onPressed: () => addNoteAttachments(context, ref, widget.noteId),
+                ),
+                NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt),
                 IconButton(
                   tooltip: note.important ? 'Снять отметку «важное»' : 'Отметить как важное',
                   icon: Icon(note.important ? Icons.star : Icons.star_outline,
@@ -202,7 +207,8 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   onPressed: () => _store.setArchived([widget.noteId], !note.archived),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Переместить в корзину',
+                  icon: const Icon(Icons.delete_sweep_outlined),
                   onPressed: confirmDelete,
                 ),
               ]),
@@ -237,10 +243,6 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   onSubmitted: (_) => _editorFocus.requestFocus(),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Создано ${_dateFmt.format(note.createdAt)}  ·  Изменено ${_dateFmt.format(note.updatedAt)}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.outline),
-                ),
                 const SizedBox(height: 16),
                 if (note.isVoice)
                   VoicePanel(noteId: widget.noteId)
@@ -265,11 +267,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
             SafeArea(
               top: false,
               child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardTheme.color,
-                  border: Border(top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5))),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
                 child: toolbar,
               ),
             ),
@@ -336,14 +334,34 @@ class FormatToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = large ? 22.0 : 16.0;
-    final factor = large ? 1.5 : 1.25;
-    final opts = QuillToolbarToggleStyleButtonOptions(iconSize: size, iconButtonFactor: factor);
+    final scheme = Theme.of(context).colorScheme;
+    const size = 20.0;
+    final factor = large ? 40 / size : 32 / size;
+    final buttonSize = large ? 40.0 : 32.0;
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
+    final iconTheme = QuillIconTheme(
+      iconButtonSelectedData: IconButtonData(
+        style: IconButton.styleFrom(minimumSize: Size.square(buttonSize), padding: EdgeInsets.zero, backgroundColor: scheme.primaryContainer, foregroundColor: scheme.onPrimaryContainer, shape: shape),
+      ),
+      iconButtonUnselectedData: IconButtonData(
+        style: IconButton.styleFrom(minimumSize: Size.square(buttonSize), padding: EdgeInsets.zero, foregroundColor: scheme.onSurfaceVariant, shape: shape),
+      ),
+    );
+    final opts = QuillToolbarToggleStyleButtonOptions(iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme);
     final divider = SizedBox(
       height: size,
       child: VerticalDivider(width: large ? 10 : 12, color: Theme.of(context).colorScheme.outlineVariant),
     );
-    return LayoutBuilder(
+    return Material(
+      color: Theme.of(context).cardTheme.color ?? scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+        child: LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: ConstrainedBox(
@@ -373,7 +391,8 @@ class FormatToolbar extends StatelessWidget {
                   iconSize: size,
                   iconButtonFactor: factor,
                   tooltip: 'Чек-лист',
-                  iconData: Icons.checklist,
+                   iconData: Icons.checklist,
+                   iconTheme: iconTheme,
                 ),
               ),
               QuillToolbarToggleStyleButton(
@@ -386,16 +405,18 @@ class FormatToolbar extends StatelessWidget {
                 controller: controller,
                 isUndo: true,
                 options: QuillToolbarHistoryButtonOptions(
-                    iconSize: size, iconButtonFactor: factor, tooltip: 'Отменить'),
+                    iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme, tooltip: 'Отменить'),
               ),
               QuillToolbarHistoryButton(
                 controller: controller,
                 isUndo: false,
                 options: QuillToolbarHistoryButtonOptions(
-                    iconSize: size, iconButtonFactor: factor, tooltip: 'Повторить'),
+                    iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme, tooltip: 'Повторить'),
               ),
             ],
           ),
+        ),
+      ),
         ),
       ),
     );
@@ -407,6 +428,7 @@ extension on QuillToolbarToggleStyleButtonOptions {
       QuillToolbarToggleStyleButtonOptions(
         iconSize: iconSize,
         iconButtonFactor: iconButtonFactor,
+        iconTheme: iconTheme,
         tooltip: tooltip,
         iconData: icon,
       );

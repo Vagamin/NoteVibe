@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../app_version.dart';
+import '../data/temporary_cache.dart';
 
 /// GitHub repository that publishes the release builds.
 const updateRepo = 'Vagamin/NoteVibe';
@@ -121,6 +122,7 @@ class UpdateService {
   ) async {
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, a.name));
+    TemporaryCache.retain(file.path);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final req = await client.getUrl(Uri.parse(a.url));
@@ -146,6 +148,8 @@ class UpdateService {
       rethrow;
     } finally {
       client.close(force: true);
+      TemporaryCache.protectFor(file.path, const Duration(days: 1));
+      TemporaryCache.release(file.path);
     }
   }
 

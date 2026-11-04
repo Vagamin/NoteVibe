@@ -15,6 +15,8 @@ import '../theme/app_theme.dart';
 import '../trash/trash_screen.dart';
 import '../widgets/sync_status_chip.dart';
 import '../widgets/transfers_button.dart';
+import '../widgets/note_info_button.dart';
+import '../attachments/attachments_panel.dart';
 import '../../update/update_service.dart';
 import '../../app_version.dart';
 
@@ -235,10 +237,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     ];
 
     final listPane = Column(children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        child: SearchField(focusNode: _searchFocus),
-      ),
       Expanded(
         child: NotesList(
           selectedId: wide ? selected : null,
@@ -276,7 +274,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         autofocus: true,
         child: Scaffold(
           appBar: PreferredSize(
-            preferredSize: const Size.fromHeight(kToolbarHeight),
+            preferredSize: Size.fromHeight(kToolbarHeight + (selecting == null ? 60 : 0)),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 260),
               reverseDuration: const Duration(milliseconds: 200),
@@ -303,8 +301,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       onPressed: selecting.isEmpty ? null : () => _bulkImportant(selecting),
                     ),
                     IconButton(
-                      tooltip: 'Удалить выбранные',
-                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'Переместить выбранные в корзину',
+                      icon: const Icon(Icons.delete_sweep_outlined),
                       onPressed: selecting.isEmpty ? null : () => _bulkDelete(selecting),
                     ),
                     const SizedBox(width: 8),
@@ -312,8 +310,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 )
               : AppBar(
                   key: const ValueKey('normal'),
-                  title: const Text('NoteVibe'),
-                  actions: actions,
+                   title: const Text('NoteVibe'),
+                   bottom: PreferredSize(
+                     preferredSize: const Size.fromHeight(60),
+                     child: Padding(
+                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                       child: Align(
+                         alignment: Alignment.centerLeft,
+                         child: SizedBox(width: wide ? 328 : double.infinity, child: SearchField(focusNode: _searchFocus)),
+                       ),
+                     ),
+                   ),
+                   actions: actions,
                 ),
             ),
           ),
@@ -405,6 +413,12 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
     return Scaffold(
       appBar: AppBar(
         actions: [
+          if (note != null) NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt),
+          IconButton(
+            tooltip: 'Добавить вложения',
+            icon: const Icon(Icons.attach_file),
+            onPressed: () => addNoteAttachments(context, ref, noteId),
+          ),
           SyncStatusChip(
             status: status,
             compact: true,
@@ -427,9 +441,9 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
             },
           ),
           IconButton(
-            tooltip: 'Удалить',
+            tooltip: 'Переместить в корзину',
             iconSize: 26,
-            icon: const Icon(Icons.delete_outline),
+            icon: const Icon(Icons.delete_sweep_outlined),
             onPressed: () => _editorKey.currentState?.confirmDelete(),
           ),
         ],

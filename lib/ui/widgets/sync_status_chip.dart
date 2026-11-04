@@ -22,13 +22,13 @@ class SyncStatusChip extends StatelessWidget {
         : '${status.label} (авто выкл.)';
     final iconWidget = status.state == SyncState.syncing
         ? SizedBox(
-            width: 16,
-            height: 16,
+            width: 24,
+            height: 24,
             child: CircularProgressIndicator(strokeWidth: 2, color: color),
           )
-        : Icon(icon, size: 18, color: color);
+        : Icon(icon, size: 24, color: color);
     final child = compact
-        ? Padding(padding: const EdgeInsets.all(12), child: iconWidget)
+        ? SizedBox(width: 48, height: 48, child: Center(child: iconWidget))
         : Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(

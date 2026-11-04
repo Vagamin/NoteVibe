@@ -49,7 +49,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                 ),
                 IconButton(
                   tooltip: 'Удалить выбранные',
-                  icon: const Icon(Icons.delete_outline),
+                  icon: const Icon(Icons.delete_sweep_outlined),
                   onPressed: selecting.isEmpty ? null : () => _bulkDelete(selecting),
                 ),
                 const SizedBox(width: 8),

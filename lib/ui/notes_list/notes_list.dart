@@ -56,6 +56,9 @@ class _SearchFieldState extends ConsumerState<SearchField> {
       },
       decoration: InputDecoration(
         hintText: 'Поиск заметок',
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
         prefixIcon: const Icon(Icons.search),
         suffixIcon: _c.text.isEmpty
             ? null
@@ -101,6 +104,7 @@ class NotesList extends ConsumerWidget {
             : notesProvider);
     final query = ref.watch(searchQueryProvider);
     final previewLines = ref.watch(previewLinesProvider);
+    final voicePreview = ref.watch(voicePreviewProvider);
     final fontScale = ref.watch(noteFontSizeProvider).scale;
     final picked = ref.watch(selectionProvider);
     final manual = ref.watch(manualOrderProvider) && !archived && !trashed && query.isEmpty && (picked == null || Platform.isAndroid);
@@ -138,6 +142,7 @@ class NotesList extends ConsumerWidget {
         selected: n.id == selectedId || inSelection,
         large: large,
         previewLines: previewLines,
+        voicePreview: voicePreview,
         fontScale: fontScale,
         checked: selecting ? inSelection : null,
         onTap: () {
@@ -220,6 +225,7 @@ class NoteCard extends StatelessWidget {
   final bool selected;
   final bool large;
   final PreviewLines previewLines;
+  final VoicePreview voicePreview;
   final double fontScale;
 
   /// Null when selection mode is off; otherwise whether the card is checked.
@@ -237,6 +243,7 @@ class NoteCard extends StatelessWidget {
     this.selected = false,
     this.large = false,
     this.previewLines = PreviewLines.two,
+    this.voicePreview = VoicePreview.all,
     this.fontScale = 1.0,    this.checked,
     this.onLongPress,
     this.onCtrlTap,
@@ -344,7 +351,7 @@ class NoteCard extends StatelessWidget {
             ],
             if (note.isVoice && voice != null && voice!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              for (final a in voice!)
+              for (final a in voice!.take(voicePreview.count))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: VoicePlayer(
@@ -354,6 +361,9 @@ class NoteCard extends StatelessWidget {
                     compact: true,
                   ),
                 ),
+              if (voice!.length > voicePreview.count)
+                Text(voicePreview.count == 0 ? 'Записей: ${voice!.length}' : 'Ещё записей: ${voice!.length - voicePreview.count}',
+                  style: t.bodySmall?.copyWith(color: s.onSurfaceVariant)),
             ] else if (note.isVoice) ...[
               const SizedBox(height: 4),
               Row(children: [

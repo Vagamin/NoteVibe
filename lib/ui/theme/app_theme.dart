@@ -17,11 +17,14 @@ class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: background,
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: card,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
+        iconTheme: IconThemeData(color: scheme.onSurfaceVariant, size: 24),
+        actionsIconTheme: IconThemeData(color: scheme.onSurfaceVariant, size: 24),
+        shape: Border(bottom: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4))),
         titleTextStyle: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,
@@ -36,6 +39,37 @@ class AppTheme {
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
         ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: card,
+        surfaceTintColor: Colors.transparent,
+        elevation: 6,
+        shadowColor: Colors.black.withValues(alpha: 0.16),
+        menuPadding: const EdgeInsets.all(8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        ),
+        textStyle: TextStyle(fontSize: 14, color: scheme.onSurface),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

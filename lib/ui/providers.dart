@@ -293,6 +293,33 @@ class PreviewLinesSetting extends Notifier<PreviewLines> {
 
 final previewLinesProvider = NotifierProvider<PreviewLinesSetting, PreviewLines>(PreviewLinesSetting.new);
 
+enum VoicePreview {
+  hidden(0, 'Только количество'),
+  one(1, '1 запись'),
+  two(2, '2 записи'),
+  three(3, '3 записи'),
+  all(5, 'Все записи');
+
+  final int count;
+  final String label;
+  const VoicePreview(this.count, this.label);
+}
+
+class VoicePreviewSetting extends Notifier<VoicePreview> {
+  @override
+  VoicePreview build() {
+    final value = ref.watch(storeProvider).getSetting('voice_preview');
+    return VoicePreview.values.firstWhere((v) => v.name == value, orElse: () => VoicePreview.all);
+  }
+
+  void set(VoicePreview value) {
+    ref.read(storeProvider).setSetting('voice_preview', value.name);
+    state = value;
+  }
+}
+
+final voicePreviewProvider = NotifierProvider<VoicePreviewSetting, VoicePreview>(VoicePreviewSetting.new);
+
 /// Text size of notes, both in the editor and in the list.
 enum NoteFontSize {
   small(0.88, 'Мелкий'),

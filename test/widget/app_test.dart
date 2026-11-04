@@ -47,6 +47,36 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
 
+  testWidgets('note dates are hidden behind information button', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Сведения');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Сведения'));
+    await tester.pumpAndSettle();
+    expect(find.text('Дата создания'), findsNothing);
+    await tester.tap(find.byTooltip('Сведения о заметке'));
+    await tester.pumpAndSettle();
+    expect(find.text('Дата создания'), findsOneWidget);
+    expect(find.text('Дата изменения'), findsOneWidget);
+    expect(find.byTooltip('Переместить в корзину'), findsOneWidget);
+  });
+
+  test('voice preview setting persists independently of text preview', () async {
+    final s = await makeServices();
+    final container = ProviderContainer(overrides: [servicesProvider.overrideWithValue(s)]);
+    expect(container.read(voicePreviewProvider), VoicePreview.all);
+    container.read(voicePreviewProvider.notifier).set(VoicePreview.two);
+    expect(s.store.getSetting('voice_preview'), 'two');
+    expect(container.read(previewLinesProvider), PreviewLines.two);
+    container.dispose();
+    final restored = ProviderContainer(overrides: [servicesProvider.overrideWithValue(s)]);
+    expect(restored.read(voicePreviewProvider), VoicePreview.two);
+    restored.dispose();
+    await s.sync.stop();
+    s.store.dispose();
+  });
+
   testWidgets('desktop: drag a note anywhere on the card in manual order', (tester) async {
     late AppServices s;
     await tester.runAsync(() async {
@@ -171,7 +201,7 @@ void main() {
     expect(find.byType(MobileEditorPage), findsOneWidget);
     expect(find.byTooltip('Жирный (Ctrl+B)'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Удалить'));
+    await tester.tap(find.byTooltip('Переместить в корзину'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'В корзину'));
     await tester.pumpAndSettle();

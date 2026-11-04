@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../providers.dart';
 import '../../sync/sync_service.dart';
 import '../../data/temporary_cache.dart';
 import 'voice_service.dart';
+import 'recording_envelope.dart';
 
 /// Id of the recording that plays now. Starting one pauses the others.
 class ActiveVoiceNotifier extends Notifier<String?> {
@@ -328,10 +330,7 @@ class _WavePainter extends CustomPainter {
       old.idle != idle;
 }
 
-/// Live bars shown while recording: the newest level enters on the right and
-/// older ones move left, so the row looks like the voice is being drawn.
-/// Bars shown while recording. The painter redraws on every audio chunk, so the
-/// bars move with the voice.
+/// A softly moving waveform driven by fresh microphone RMS levels.
 class RecordingWave extends StatefulWidget {
   final VoiceService service;
   final Color color;
@@ -345,25 +344,30 @@ class RecordingWave extends StatefulWidget {
 class _RecordingWaveState extends State<RecordingWave> with SingleTickerProviderStateMixin {
   late final AnimationController _motion;
   double _signal = 0;
+  final _envelope = RecordingEnvelope();
+  final _clock = Stopwatch();
+  int _lastMicros = 0;
 
   @override
   void initState() {
     super.initState();
+    _clock.start();
     _motion = AnimationController(vsync: this, duration: const Duration(milliseconds: 3600))..addListener(_tick)..repeat();
   }
 
   void _tick() {
-    final recent = widget.service.history.reversed.take(8);
-    final average = recent.isEmpty ? 0.0 : recent.reduce((a, b) => a + b) / recent.length;
-    // Gate quiet background noise; show a clear, stable signal, not raw peaks.
-    final target = average > 0.38 ? 1.0 : 0.0;
-    _signal += (target - _signal) * (target > _signal ? 0.12 : 0.04);
+    final now = _clock.elapsedMicroseconds;
+    final level = widget.service.inputLevel;
+    final visualLevel = Platform.isWindows ? math.pow(level, 0.7).toDouble() : level;
+    _signal = _envelope.advance(visualLevel, (now - _lastMicros) / 1000000);
+    _lastMicros = now;
     setState(() {});
   }
 
   @override
   void dispose() {
     _motion.dispose();
+    _clock.stop();
     super.dispose();
   }
 
@@ -383,16 +387,18 @@ class _LevelPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final n = math.max(1, (size.width / 7).floor());
+    final n = math.max(1, (size.width / 6).floor());
     final step = size.width / n;
     final paint = Paint()
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = math.min(4.0, step * 0.6)
+      ..strokeWidth = math.min(3.0, step * 0.5)
       ..color = color;
     final mid = size.height / 2;
     for (var i = 0; i < n; i++) {
-      final wave = (math.sin(i * 0.65 - phase * math.pi * 2) + 1) / 2;
-      final h = 4 + signal * (size.height - 8) * (0.35 + 0.65 * wave);
+      final position = (i + 0.5) / n;
+      final wave = (math.sin(position * math.pi * 6 - phase * math.pi * 2) + 1) / 2;
+      final taper = math.sin(position * math.pi);
+      final h = 3 + signal * (size.height - 10) * taper * (0.3 + 0.7 * wave);
       final x = step * i + step / 2;
       canvas.drawLine(Offset(x, mid - h / 2), Offset(x, mid + h / 2), paint);
     }

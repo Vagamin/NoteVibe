@@ -162,7 +162,7 @@ class NotesList extends ConsumerWidget {
     if (manual) {
       final isDesktop = Platform.isWindows;
       return ReorderableListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 100),
         itemCount: notes.length,
         buildDefaultDragHandles: false,
         proxyDecorator: (child, index, animation) => AnimatedBuilder(
@@ -209,7 +209,7 @@ class NotesList extends ConsumerWidget {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 100),
       itemCount: notes.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: itemBuilder,

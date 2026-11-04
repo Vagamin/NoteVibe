@@ -50,7 +50,7 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
   Future<void> _start(int count) async {
     final messenger = ScaffoldMessenger.of(context);
     if (count >= maxVoiceRecordings) {
-      messenger.showSnackBar(const SnackBar(content: Text('В заметке уже 5 записей')));
+      messenger.showSnackBar(const SnackBar(content: Text('В заметке уже $maxVoiceRecordings записей')));
       return;
     }
     try {
@@ -123,7 +123,7 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
     );
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(20),
@@ -136,9 +136,8 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
             Icon(Icons.mic, color: scheme.primary, size: 18),
             const SizedBox(width: 6),
             Expanded(child: Text('Записи', style: Theme.of(context).textTheme.titleSmall)),
-            _SelectionReveal(
-              visible: mobile && _selecting,
-              child: IconButton(
+            if (mobile && _selecting)
+              IconButton(
                 tooltip: 'Отменить выбор записей',
                 icon: const Icon(Icons.close),
                 onPressed: () => setState(() {
@@ -146,10 +145,9 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
                   _selected.clear();
                 }),
               ),
-            ),
             Text('$count из $maxVoiceRecordings', style: TextStyle(color: scheme.outline)),
           ]),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           if (_recording)
             Container(
               padding: const EdgeInsets.all(12),
@@ -200,7 +198,7 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
               ],
             ) : const SizedBox(width: double.infinity),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           if (items.isEmpty && !_recording)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),

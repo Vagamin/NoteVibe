@@ -9,7 +9,7 @@ import '../../data/attachment_storage.dart';
 import '../../data/note_store.dart';
 
 /// A voice note holds up to this many recordings.
-const maxVoiceRecordings = 5;
+const maxVoiceRecordings = 10;
 
 /// Each recording stops by itself after this long.
 const maxVoiceDuration = Duration(minutes: 5);
@@ -33,6 +33,11 @@ class VoiceService {
   final ValueNotifier<int> chunks = ValueNotifier(0);
 
   bool _recording = false;
+  final Stopwatch _inputClock = Stopwatch();
+  double _inputLevel = 0;
+
+  /// A missing/stalled stream must not leave the last sound on screen.
+  double get inputLevel => _recording && _inputClock.isRunning && _inputClock.elapsedMilliseconds < 250 ? _inputLevel : 0;
   BytesBuilder? _pcm;
   StreamSubscription<Uint8List>? _sub;
   Completer<void>? _done;
@@ -57,12 +62,15 @@ class VoiceService {
     _pcm = pcm;
     _done = done;
     _recording = true;
+    _resetLevels();
     _sub = stream.listen(
       (chunk) {
         pcm.add(chunk);
+        _inputLevel = _levelOf(chunk);
+        _inputClock..reset()..start();
         history
           ..removeAt(0)
-          ..add(_levelOf(chunk));
+          ..add(_inputLevel);
         chunks.value = chunks.value + 1;
       },
       onDone: () => done.complete(),
@@ -103,6 +111,8 @@ class VoiceService {
   }
 
   void _resetLevels() {
+    _inputClock.stop();
+    _inputLevel = 0;
     history.fillRange(0, history.length, 0.0);
     chunks.value = 0;
   }
@@ -135,19 +145,20 @@ class VoiceService {
     await _recorder.dispose();
   }
 
-  /// Loudness of one PCM chunk: peak sample in dBFS (-55..-15) mapped to 0..1.
+  /// RMS loudness rejects isolated peaks and keeps room noise near the baseline.
   static double _levelOf(Uint8List chunk) {
     final data = ByteData.sublistView(chunk);
     final n = chunk.length ~/ 2;
     if (n == 0) return 0;
-    var peak = 0;
+    var sumSquares = 0.0;
     for (var i = 0; i < n; i++) {
       final s = data.getInt16(i * 2, Endian.little).abs();
-      if (s > peak) peak = s;
+      sumSquares += s * s;
     }
-    if (peak == 0) return 0;
-    final db = 20 * math.log(peak / 32768) / math.ln10;
-    return ((db + 55) / 40).clamp(0.0, 1.0).toDouble();
+    if (sumSquares == 0) return 0;
+    final rms = math.sqrt(sumSquares / n) / 32768;
+    final db = 20 * math.log(rms) / math.ln10;
+    return ((db + 48) / 30).clamp(0.0, 1.0).toDouble();
   }
 
   /// Wraps raw 16-bit mono PCM in a WAV header.

@@ -167,9 +167,9 @@ class _UpdateCardState extends State<UpdateCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
-          Icon(Icons.system_update_alt, size: 22, color: theme.colorScheme.onSurfaceVariant),
+          SizedBox(width: 24, child: Icon(Icons.system_update_alt, size: 22, color: theme.colorScheme.onSurfaceVariant)),
           const SizedBox(width: 12),
-          Expanded(child: Text(status, style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600))),
+          Expanded(child: Text(status, style: theme.textTheme.bodyLarge?.copyWith(fontSize: 16, height: 1.3, fontWeight: FontWeight.w600))),
         ]),
         if (_phase == _Phase.downloading) ...[
           const SizedBox(height: 8),

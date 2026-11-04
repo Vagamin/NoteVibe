@@ -10,6 +10,7 @@ import '../attachments/attachment_service.dart';
 import '../providers.dart';
 import '../voice/voice_panel.dart';
 import 'update_card.dart';
+import '../widgets/settings_switch_card.dart';
 import '../cache_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -246,33 +247,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
           Text('Синхронизация', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
           _SettingsSwitch(
             icon: Icons.sync,
             title: const Text('Автосинхронизация'),
             value: status.autoSync,
             onChanged: (v) => sync.autoSync = v,
           ),
-          const SizedBox(height: 8),
           Card(
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Имя устройства', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
+                Row(children: [
+                  Icon(Icons.devices_outlined, size: 22, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 14),
+                  Text('Имя устройства', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3)),
+                ]),
+                const SizedBox(height: 12),
                 TextField(
             controller: _name,
             decoration: const InputDecoration(hintText: 'Введите имя', isDense: true),
             onSubmitted: (_) => _saveName(),
             onEditingComplete: _saveName,
           ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Text('Порт: ${sync.port}\nОтпечаток ключа: ${sync.identity.fingerprint}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ]),
             ),
           ),
-          const SizedBox(height: 8),
           const SizedBox(height: 24),
           Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
@@ -289,6 +293,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
            const UpdateCard(),
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
           _SettingsSwitch(
             icon: Icons.download_outlined,
             title: const Text('Автозагрузка файлов'),
@@ -380,48 +385,7 @@ class _SettingsTile extends StatelessWidget {
   );
 }
 
-class _SettingsSwitch extends StatelessWidget {
-  final IconData icon;
-  final Widget title;
-  final Widget? subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  const _SettingsSwitch({required this.icon, required this.title, this.subtitle,
-    required this.value, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return MergeSemantics(
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => onChanged(!value),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Icon(icon, size: 22, color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: 12),
-              Expanded(child: DefaultTextStyle(
-                style: theme.textTheme.bodyLarge!.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3),
-                child: title,
-              )),
-              const SizedBox(width: 8),
-              Switch(value: value, onChanged: onChanged),
-            ]),
-            if (subtitle != null) Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: DefaultTextStyle(
-                style: theme.textTheme.bodyMedium!.copyWith(fontSize: 14, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
-                child: subtitle!,
-              ),
-            ),
-          ]),
-        ),
-      ),
-      ),
-    );
-  }
+class _SettingsSwitch extends SettingsSwitchCard {
+  const _SettingsSwitch({required super.icon, required super.title, super.subtitle,
+    required super.value, required super.onChanged});
 }

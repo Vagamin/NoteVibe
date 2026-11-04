@@ -13,6 +13,7 @@ import '../../sync/pairing/pairing.dart';
 import '../../sync/sync_service.dart';
 import '../providers.dart';
 import '../widgets/sync_status_chip.dart';
+import '../widgets/settings_switch_card.dart';
 
 bool get cameraSupported => Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
 
@@ -63,18 +64,18 @@ class DevicesScreen extends ConsumerWidget {
                   Text(status.lastError!,
                       style: t.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error)),
                 ],
-                const SizedBox(height: 8),
-                Row(children: [
-                  Expanded(child: Text('Автосинхронизация', style: t.bodyLarge?.copyWith(fontWeight: FontWeight.w600))),
-                  const SizedBox(width: 8),
-                  Switch(value: status.autoSync, onChanged: (v) => sync.autoSync = v),
-                ]),
-                Text('В одной Wi‑Fi или локальной сети.\nБез интернета и облака.',
-                  style: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4)),
               ]),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 4),
+          SettingsSwitchCard(
+            icon: Icons.sync,
+            title: const Text('Автосинхронизация'),
+            subtitle: const Text('В одной Wi‑Fi или локальной сети.\nБез интернета и облака.'),
+            value: status.autoSync,
+            onChanged: (v) => sync.autoSync = v,
+          ),
+          const SizedBox(height: 4),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),

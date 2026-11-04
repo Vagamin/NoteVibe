@@ -30,6 +30,20 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   final _searchFocus = FocusNode();
+  bool _searchVisible = false;
+
+  void _openSearch() {
+    setState(() => _searchVisible = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    _searchFocus.unfocus();
+    ref.read(searchQueryProvider.notifier).set('');
+    setState(() => _searchVisible = false);
+  }
   bool _checkingUpdate = false;
   String? _notifiedVersion;
 
@@ -157,6 +171,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final selecting = ref.watch(selectionProvider);
 
     final actions = <Widget>[
+      IconButton(
+        tooltip: _searchVisible ? 'Закрыть поиск' : 'Поиск заметок',
+        icon: Icon(_searchVisible ? Icons.close : Icons.search),
+        onPressed: _searchVisible ? _closeSearch : _openSearch,
+      ),
       if (wide) ...[
       if (selecting == null)
         IconButton(
@@ -268,13 +287,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyN, control: true): () => _newNote(wide),
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () => _searchFocus.requestFocus(),
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): _openSearch,
       },
       child: Focus(
         autofocus: true,
         child: Scaffold(
           appBar: PreferredSize(
-            preferredSize: Size.fromHeight(kToolbarHeight + (selecting == null ? 60 : 0)),
+            preferredSize: Size.fromHeight(kToolbarHeight + (selecting == null && _searchVisible ? 60 : 0)),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 260),
               reverseDuration: const Duration(milliseconds: 200),
@@ -311,7 +330,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               : AppBar(
                   key: const ValueKey('normal'),
                    title: const Text('NoteVibe'),
-                   bottom: PreferredSize(
+                   bottom: !_searchVisible ? null : PreferredSize(
                      preferredSize: const Size.fromHeight(60),
                      child: Padding(
                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),

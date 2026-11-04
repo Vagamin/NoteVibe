@@ -185,6 +185,9 @@ void main() {
     s.store.createNote(title: 'Работа', plainText: 'отчёт');
     await pumpApp(tester, s);
     expect(find.text('Рецепт борща'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Поиск заметок'), findsNothing);
+    await tester.tap(find.byTooltip('Поиск заметок'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Поиск заметок'), 'отчёт');
     await tester.pumpAndSettle();
     expect(find.text('Рецепт борща'), findsNothing);

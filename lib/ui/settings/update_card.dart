@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -15,7 +16,36 @@ class UpdateCard extends StatefulWidget {
   State<UpdateCard> createState() => _UpdateCardState();
 }
 
-class _UpdateCardState extends State<UpdateCard> {
+class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
+  Completer<void>? _foreground;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _foreground?.complete();
+      _foreground = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _foreground?.complete();
+    _foreground = null;
+    super.dispose();
+  }
+
+  Future<void> _waitForForeground() async {
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) return;
+    _foreground ??= Completer<void>();
+    await _foreground!.future;
+  }
   _Phase _phase = _Phase.idle;
   Release? _release;
   ReleaseAsset? _asset;
@@ -80,6 +110,9 @@ class _UpdateCardState extends State<UpdateCard> {
         }
         final dir = await UpdateService.downloadDir();
         final file = await UpdateService.download(asset, dir, _onProgress);
+        if (!mounted) return;
+        await _waitForForeground();
+        if (!mounted) return;
         await UpdateService.installApk(file);
         if (mounted) {
           setState(() => _phase = _Phase.available);

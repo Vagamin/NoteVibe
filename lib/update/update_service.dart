@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -125,27 +126,50 @@ class UpdateService {
     TemporaryCache.retain(file.path);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      final req = await client.getUrl(Uri.parse(a.url));
-      req.headers.set(HttpHeaders.userAgentHeader, 'NoteVibe/$appVersion');
-      final res = await req.close();
-      if (res.statusCode != 200) {
-        throw UpdateException('Не удалось скачать файл (код ${res.statusCode}).');
-      }
-      final sink = file.openWrite();
-      var got = 0;
-      try {
-        await for (final chunk in res) {
-          sink.add(chunk);
-          got += chunk.length;
-          if (a.size > 0) onProgress(got / a.size);
+      for (var attempt = 0; attempt < 6; attempt++) {
+        try {
+          var got = await file.exists() ? await file.length() : 0;
+          if (a.size > 0 && got == a.size) return file;
+          if (a.size > 0 && got > a.size) { await file.delete(); got = 0; }
+          final req = await client.getUrl(Uri.parse(a.url));
+          req.headers.set(HttpHeaders.userAgentHeader, 'NoteVibe/$appVersion');
+          if (got > 0) req.headers.set(HttpHeaders.rangeHeader, 'bytes=$got-');
+          final res = await req.close().timeout(const Duration(seconds: 30));
+          if (res.statusCode != 200 && res.statusCode != 206) {
+            await res.drain<void>();
+            throw UpdateException('Не удалось скачать файл (код ${res.statusCode}).');
+          }
+          if (res.statusCode == 206) {
+            final range = res.headers.value(HttpHeaders.contentRangeHeader) ?? '';
+            if (!range.startsWith('bytes $got-')) {
+              await res.drain<void>();
+              await file.delete();
+              throw const UpdateException('Сервер вернул неверный диапазон файла.');
+            }
+          } else {
+            // A server without Range support must restart, never append a full APK.
+            got = 0;
+          }
+          final sink = file.openWrite(mode: got > 0 ? FileMode.append : FileMode.write);
+          try {
+            await for (final chunk in res.timeout(const Duration(seconds: 30))) {
+              sink.add(chunk);
+              got += chunk.length;
+              if (a.size > 0) onProgress(got / a.size);
+            }
+          } finally {
+            await sink.close();
+          }
+          if (a.size > 0 && await file.length() != a.size) {
+            throw const UpdateException('Загрузка прервана. Продолжаем скачивание…');
+          }
+          return file;
+        } catch (_) {
+          if (attempt == 5) rethrow;
+          await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));
         }
-      } finally {
-        await sink.close();
       }
-      return file;
-    } catch (_) {
-      if (await file.exists()) await file.delete();
-      rethrow;
+      throw const UpdateException('Не удалось завершить загрузку. Повторите попытку.');
     } finally {
       client.close(force: true);
       TemporaryCache.protectFor(file.path, const Duration(days: 1));

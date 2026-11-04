@@ -97,9 +97,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Тема', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
           _SettingsTile(
+            margin: EdgeInsets.zero,
             leading: const Icon(Icons.palette_outlined),
             title: const Text('Оформление'),
             subtitle: Text(switch (mode) { ThemeMode.system => 'Системная тема', ThemeMode.light => 'Светлая тема', ThemeMode.dark => 'Тёмная тема' }),
@@ -376,11 +375,13 @@ class _SettingsTile extends StatelessWidget {
   final Widget? subtitle;
   final Widget? trailing;
   final VoidCallback? onTap;
-  const _SettingsTile({required this.leading, required this.title, this.subtitle, this.trailing, this.onTap});
+  final EdgeInsetsGeometry margin;
+  const _SettingsTile({required this.leading, required this.title, this.subtitle, this.trailing, this.onTap,
+    this.margin = const EdgeInsets.symmetric(vertical: 4)});
 
   @override
   Widget build(BuildContext context) => Card(
-    margin: const EdgeInsets.symmetric(vertical: 4),
+    margin: margin,
     child: ListTile(leading: leading, title: title, subtitle: subtitle, trailing: trailing, onTap: onTap),
   );
 }

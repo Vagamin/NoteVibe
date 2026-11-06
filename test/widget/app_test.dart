@@ -17,6 +17,7 @@ import 'package:notevibe/sync/crypto/secure_channel.dart';
 import 'package:notevibe/sync/sync_service.dart';
 import 'package:notevibe/ui/layout/home_screen.dart';
 import 'package:notevibe/ui/providers.dart';
+import 'package:notevibe/ui/editor/format_glyph.dart';
 
 Future<AppServices> makeServices() async {
   final store = NoteStore.inMemory(deviceId: 'TEST');
@@ -46,6 +47,90 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+
+  testWidgets('font setting scales editor paragraphs, lists and headings', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.setSetting('note_font_size', 'maximum');
+    s.store.createNote(title: 'Размер', content: jsonEncode([
+      {'insert': 'Обычный\n'},
+      {'insert': 'Список'}, {'insert': '\n', 'attributes': {'list': 'unchecked'}},
+    ]), plainText: 'Обычный\nСписок\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Размер'));
+    await tester.pumpAndSettle();
+    final styles = tester.widget<QuillEditor>(find.byType(QuillEditor)).config.customStyles!;
+    expect(styles.paragraph!.style.fontSize, closeTo(17 * 1.85, 0.01));
+    expect(styles.lists!.style.fontSize, closeTo(17 * 1.85, 0.01));
+    expect(styles.h1!.style.fontSize, greaterThan(styles.paragraph!.style.fontSize!));
+    expect(NoteFontSize.values.length, greaterThan(4));
+  });
+
+  testWidgets('color controls show current selection colors', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Цвета', content: jsonEncode([
+      {'insert': 'Цветной', 'attributes': {'color': '#D32F2F', 'background': '#FBC02D'}},
+      {'insert': '\n'},
+    ]), plainText: 'Цветной\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Цвета'));
+    await tester.pumpAndSettle();
+    final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
+    controller.updateSelection(const TextSelection(baseOffset: 0, extentOffset: 3), ChangeSource.local);
+    await tester.pumpAndSettle();
+    final color = tester.widget<IconButton>(find.byWidgetPredicate((widget) => widget is IconButton && widget.tooltip == 'Цвет текста'));
+    final highlight = tester.widget<IconButton>(find.byWidgetPredicate((widget) => widget is IconButton && widget.tooltip == 'Цвет выделения'));
+    expect(color.style!.foregroundColor!.resolve({}), const Color(0xFFD32F2F));
+    expect(highlight.style!.foregroundColor!.resolve({}), const Color(0xFFFBC02D));
+  });
+
+  testWidgets('new checked-list item starts unchecked', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Чек-лист', content: jsonEncode([
+      {'insert': 'Готово'},
+      {'insert': '\n', 'attributes': {'list': 'checked'}},
+    ]), plainText: 'Готово\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Чек-лист'));
+    await tester.pumpAndSettle();
+    final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
+    controller.replaceText(6, 0, '\n', const TextSelection.collapsed(offset: 7));
+    await tester.pump();
+    expect(controller.getSelectionStyle().attributes[Attribute.list.key]?.value, isNot('checked'));
+    expect(find.byTooltip('Цвет текста'), findsOneWidget);
+    expect(find.byTooltip('Цвет выделения'), findsOneWidget);
+    expect(find.byType(FormatGlyph), findsNWidgets(9));
+    for (final element in find.byType(FormatGlyph).evaluate()) {
+      expect(tester.getSize(find.byWidget(element.widget)), const Size(24, 24));
+    }
+    await tester.pump(const Duration(milliseconds: 600));
+  });
+
+  testWidgets('toggling first checkbox leaves the last item and editor instance unchanged', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Список без мигания', content: jsonEncode([
+      for (final text in ['Первый', 'Средний', 'Последний']) ...[
+        {'insert': text}, {'insert': '\n', 'attributes': {'list': 'unchecked'}},
+      ],
+    ]), plainText: 'Первый\nСредний\nПоследний\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Список без мигания'));
+    await tester.pumpAndSettle();
+    final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
+    final boxes = find.descendant(of: find.byType(QuillEditor), matching: find.byIcon(Icons.check_box_outline_blank));
+    expect(boxes, findsNWidgets(3));
+    await tester.tap(boxes.first);
+    await tester.pump();
+    expect(find.descendant(of: find.byType(QuillEditor), matching: find.byIcon(Icons.check_box)), findsOneWidget);
+    expect(boxes, findsNWidgets(2));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(tester.widget<QuillEditor>(find.byType(QuillEditor)).controller, same(controller));
+    final delta = controller.document.toDelta().toJson();
+    expect((delta.last['attributes'] as Map)['list'], 'unchecked');
+  });
 
   testWidgets('note dates are hidden behind information button', (tester) async {
     late AppServices s;
@@ -178,6 +263,31 @@ void main() {
     expect(s.store.getNote(n.id)!.content, contains('"list":"unchecked"'));
   });
 
+  testWidgets('uniform toolbar scrolls and custom history buttons work', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Панель', content: jsonEncode([{'insert': 'Текст\n'}]), plainText: 'Текст');
+    await pumpApp(tester, s, size: const Size(320, 800));
+    await tester.tap(find.text('Панель'));
+    await tester.pumpAndSettle();
+    final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
+    controller.updateSelection(const TextSelection(baseOffset: 0, extentOffset: 5), ChangeSource.local);
+    await tester.tap(find.byTooltip('Жирный (Ctrl+B)'));
+    await tester.pump();
+    expect(controller.document.toDelta().toJson().toString(), contains('bold: true'));
+    final scroll = find.ancestor(of: find.byTooltip('Повторить'), matching: find.byType(SingleChildScrollView)).first;
+    await tester.drag(scroll, const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Отменить'));
+    await tester.pump();
+    expect(controller.document.toDelta().toJson().toString(), isNot(contains('bold: true')));
+    await tester.tap(find.byTooltip('Повторить'));
+    await tester.pump();
+    expect(controller.document.toDelta().toJson().toString(), contains('bold: true'));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('search filters the list', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());
@@ -194,11 +304,41 @@ void main() {
     expect(find.text('Работа'), findsOneWidget);
   });
 
+  testWidgets('send selects notes in the home list without destructive actions', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Передаваемая заметка');
+    await pumpApp(tester, s, size: const Size(400, 800));
+    await tester.tap(find.byTooltip('Разовая передача'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    final sendButton = find.widgetWithText(FilledButton, 'Отправить');
+    final receiveButton = find.widgetWithText(FilledButton, 'Получить');
+    expect(tester.getSize(sendButton).width, tester.getSize(receiveButton).width);
+    expect(tester.getCenter(sendButton).dx, tester.getCenter(receiveButton).dx);
+    await tester.tap(find.widgetWithText(FilledButton, 'Отправить'));
+    await tester.pumpAndSettle();
+    expect(find.text('Отправить: 0'), findsOneWidget);
+    expect(find.text('Разовая передача'), findsNothing);
+    await tester.tap(find.text('Передаваемая заметка'));
+    await tester.pumpAndSettle();
+    expect(find.text('Отправить: 1'), findsOneWidget);
+    expect(find.byTooltip('Отправить выбранные'), findsOneWidget);
+    expect(find.byTooltip('Переместить выбранные в корзину'), findsNothing);
+    expect(find.byTooltip('В архив'), findsNothing);
+    await tester.tap(find.byTooltip('Отменить выбор'));
+    await tester.pumpAndSettle();
+    expect(find.text('NoteVibe'), findsOneWidget);
+    expect(s.store.listNotes(), hasLength(1));
+  });
+
   testWidgets('phone layout: FAB opens full-screen editor, delete returns to list', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());
     await pumpApp(tester, s, size: const Size(400, 800));
-    expect(find.byType(FloatingActionButton), findsNWidgets(2));
+    expect(find.byType(FloatingActionButton), findsNWidgets(3));
+    expect(tester.getSize(find.byTooltip('Разовая передача')), tester.getSize(find.byTooltip('Новая заметка')));
+    expect(tester.getCenter(find.byTooltip('Разовая передача')).dx, closeTo(tester.getCenter(find.byTooltip('Новая заметка')).dx, 0.01));
     await tester.tap(find.byTooltip('Новая заметка'));
     await tester.pumpAndSettle();
     expect(find.byType(MobileEditorPage), findsOneWidget);

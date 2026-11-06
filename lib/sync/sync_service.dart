@@ -87,6 +87,7 @@ class SyncService {
   final Duration periodic;
   final Duration debounce;
   final AttachmentStorage? files;
+  final String deviceKind;
 
   ServerSocket? _server;
   LanDiscovery? _discovery;
@@ -119,7 +120,8 @@ class SyncService {
     this.periodic = const Duration(seconds: 30),
     this.debounce = const Duration(seconds: 2),
     this.files,
-  });
+    String? deviceKind,
+  }) : deviceKind = deviceKind ?? (Platform.isAndroid || Platform.isIOS ? 'phone' : 'pc');
 
   // ------------------------------------------------------------ lifecycle
 
@@ -473,6 +475,7 @@ class SyncService {
         _dirty = store.hasLocalChangeAfter(logAtStart);
         await _autoFetchFiles();
       } else {
+        await _checkPairingKind(sc);
         _offer?.used = true;
         await _trust(remote.deviceId, remote.name, remote.staticKey);
         store.updatePeerSeen(remote.deviceId, address: sc.remoteAddress);
@@ -488,6 +491,7 @@ class SyncService {
     } catch (e) {
       _lastError = _describe(e);
     } finally {
+      await sc.close();
       _incoming--;
       _emitStatus();
       if (_dirty && autoSync && _started) _scheduleSync();
@@ -548,6 +552,8 @@ class SyncService {
   }
 
   Future<void> _finishPairing(SecureChannel sc, String host) async {
+    try {
+      await _checkPairingKind(sc);
     final m = await sc.receive();
     if (m['t'] != 'paired') throw PairingException('Неожиданный ответ устройства');
     final r = sc.remote;
@@ -557,6 +563,19 @@ class SyncService {
     await sc.close();
     _failures.remove(r.deviceId);
     _scheduleSync(immediate: true);
+    } finally {
+      await sc.close();
+    }
+  }
+
+  Future<void> _checkPairingKind(SecureChannel sc) async {
+    await sc.send({'t': 'pairing-kind', 'kind': deviceKind});
+    final message = await sc.receive(timeout: const Duration(seconds: 10));
+    final remote = message['kind'];
+    if (message['t'] != 'pairing-kind' ||
+        !((deviceKind == 'phone' && remote == 'pc') || (deviceKind == 'pc' && remote == 'phone'))) {
+      throw PairingException('Постоянная синхронизация доступна только между телефоном и ПК. Для других устройств используйте разовую передачу');
+    }
   }
 
   Future<void> _trust(String deviceId, String name, Uint8List key) async {

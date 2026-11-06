@@ -3,20 +3,23 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notevibe/data/attachment_storage.dart';
+import 'package:notevibe/data/vault/encrypted_attachment_storage.dart';
+import 'package:notevibe/data/vault/vault_key.dart';
 import 'package:notevibe/data/note_store.dart';
 import 'package:notevibe/sync/crypto/keys.dart';
 import 'package:notevibe/sync/crypto/secure_channel.dart';
 import 'package:notevibe/sync/sync_service.dart';
 
-Future<(SyncService, AttachmentStorage)> makeService(String id, Directory dir) async {
+Future<(SyncService, AttachmentStorage)> makeService(String id, Directory dir, {bool encrypted = false}) async {
   final store = NoteStore.inMemory(deviceId: id);
   final ks = MemoryKeyStore();
   final ident = await DeviceIdentity.loadOrCreate(ks, id, 'Device $id');
-  final files = AttachmentStorage(dir);
+  final files = encrypted ? EncryptedAttachmentStorage(dir, await VaultKey.create()) : AttachmentStorage(dir);
   final s = SyncService(
     store: store,
     peerKeys: PeerKeys(ks),
     identity: ident,
+    deviceKind: id == 'PHONE' ? 'phone' : 'pc',
     enableDiscovery: false,
     kdf: CodeKdf.fast,
     debounce: const Duration(milliseconds: 50),
@@ -88,6 +91,29 @@ void main() {
     expect(phone.transfers, isEmpty);
     expect(phoneFiles.has(hash), isTrue);
     expect(await phoneFiles.fileFor(hash).readAsBytes(), bytes);
+  });
+
+  test('paired fetch works between two encrypted stores without plaintext paths', () async {
+    final (a, aFiles) = await makeService('PC', Directory('${tmp.path}/encrypted-pc'), encrypted: true);
+    final (b, bFiles) = await makeService('PHONE', Directory('${tmp.path}/encrypted-phone'), encrypted: true);
+    try {
+      final bytes = List.generate(300000, (i) => i % 251);
+      final hash = await aFiles.save(bytes);
+      final note = a.store.createNote(title: 'Encrypted source');
+      a.store.addAttachment(noteId: note.id, name: 'data.bin', mime: '', size: bytes.length, sha256: hash);
+      final (offer, _) = await a.createPairingOffer();
+      await b.pairWithCode('127.0.0.1', a.port, offer.code);
+      await waitFor(() => b.store.attachmentsFor(note.id).isNotEmpty);
+      await b.fetchAttachment(b.store.attachmentsFor(note.id).single);
+      expect(await bFiles.readVerified(hash, size: bytes.length), bytes);
+      expect(() => aFiles.fileFor(hash), throwsUnsupportedError);
+      expect(() => bFiles.fileFor(hash), throwsUnsupportedError);
+      final entries = await bFiles.root.list(recursive: true).where((e) => e is File).toList();
+      expect(entries.every((f) => f.path.endsWith('.nhv')), isTrue);
+    } finally {
+      await a.dispose(); await b.dispose();
+      a.store.dispose(); b.store.dispose();
+    }
   });
 
   test('download fails cleanly when the owner no longer has the file', () async {

@@ -94,6 +94,15 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
   }
 
   Future<void> _saveSelected(List<Attachment> items, AttachmentService svc) async {
+    if (ref.read(servicesProvider).vault != null) {
+      final allowed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+        title: const Text('Сохранить записи без шифрования?'),
+        content: const Text('Экспортированные записи будут доступны без пароля приложения и не удалятся при его закрытии.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Сохранить копии'))],
+      ));
+      if (allowed != true || !mounted) return;
+    }
     final chosen = _selected.isEmpty ? items : items.where((a) => _selected.contains(a.id)).toList();
     final messenger = ScaffoldMessenger.of(context);
     try {

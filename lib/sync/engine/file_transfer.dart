@@ -21,12 +21,11 @@ Future<void> serveAttachment(SecureChannel ch, AttachmentStorage? files) async {
     await ch.send({'t': 'error', 'msg': 'nofile'});
     return;
   }
-  final file = files.fileFor(sha);
-  if (!await file.exists()) {
+  if (!files.has(sha)) {
     await ch.send({'t': 'error', 'msg': 'nofile'});
     return;
   }
-  final bytes = await file.readAsBytes();
+  final bytes = await files.readVerified(sha);
   await ch.send({'t': 'file', 'size': bytes.length});
   for (var off = 0; off < bytes.length; off += _chunkSize) {
     final end = off + _chunkSize > bytes.length ? bytes.length : off + _chunkSize;

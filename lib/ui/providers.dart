@@ -11,6 +11,11 @@ import 'package:uuid/uuid.dart';
 
 import '../data/attachment_storage.dart';
 import '../data/note_store.dart';
+import '../data/vault/vault_mode.dart';
+import '../data/vault/vault_session.dart';
+import '../data/vault/vault_key_store.dart';
+import '../data/vault/vault_lock.dart';
+import '../data/vault/vault_transition.dart';
 import '../domain/note.dart';
 import '../sync/crypto/dpapi_key_store.dart';
 import '../sync/crypto/keys.dart';
@@ -22,7 +27,32 @@ class AppServices {
   final NoteStore store;
   final SyncService sync;
   final AttachmentStorage attachments;
-  AppServices(this.store, this.sync, this.attachments);
+  final VaultSession? vault;
+  final Directory? dataDirectory;
+  final KeyStore? legacyKeys;
+  final VaultLock? applicationLock;
+  final List<String> startupArgs;
+  final pendingEditors = <void Function()>{};
+  bool _closed = false;
+  bool transitioning = false;
+  AppServices(this.store, this.sync, this.attachments, {this.vault,
+    this.dataDirectory, this.legacyKeys, this.applicationLock, this.startupArgs = const []});
+
+  Future<void> flush() async {
+    for (final save in pendingEditors.toList()) { save(); }
+    // NoteStore broadcasts are asynchronous; deliver revisions before flush.
+    await Future<void>.delayed(Duration.zero);
+    await vault?.notes.flush();
+  }
+
+  Future<void> close({bool releaseLock = true}) async {
+    if (_closed) return;
+    await flush();
+    await sync.dispose();
+    if (vault != null) { await vault!.close(); } else { store.dispose(); }
+    if (releaseLock) await applicationLock?.release();
+    _closed = true;
+  }
 
   /// Data folder for the portable build: `--data-dir <path>` (passed by the
   /// single-file launcher) or a `NoteVibe-Data` folder next to the exe.
@@ -44,7 +74,7 @@ class AppServices {
     return null;
   }
 
-  static Future<AppServices> init([List<String> args = const []]) async {
+  static Future<AppServices> init([List<String> args = const [], String? vaultPassword]) async {
     if (Platform.isAndroid) {
       try {
         await const MethodChannel('notevibe/net').invokeMethod('acquireMulticast');
@@ -55,7 +85,7 @@ class AppServices {
     final portable = portableDataDir(args);
     final dir = portable ?? await getApplicationSupportDirectory();
     await dir.create(recursive: true);
-    final KeyStore keyStore = portable != null && Platform.isWindows
+    KeyStore keyStore = Platform.isWindows && (portable != null || await File(p.join(dir.path, 'keys.dpapi.json')).exists())
         ? DpapiFileKeyStore(File(p.join(dir.path, 'keys.dpapi.json')))
         : SecureKeyStore();
 
@@ -68,15 +98,43 @@ class AppServices {
       deviceId = const Uuid().v4();
       await idFile.writeAsString(deviceId, flush: true);
     }
-    final store = NoteStore.open(p.join(dir.path, 'notevibe.db'), deviceId: deviceId);
+    VaultLock? appLock;
+    if (Platform.isWindows) appLock = await VaultLock.acquire(dir);
+    try {
+    if (Platform.isWindows && await VaultTransition.pending(dir) != null) {
+      final tmp = await getTemporaryDirectory();
+      await VaultTransition.recover(dir, deviceId: deviceId, password: vaultPassword, keys: keyStore,
+        caches: [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')),
+          Directory(p.join(Directory.systemTemp.path, 'notevibe_open'))]);
+    }
+    final encrypted = Platform.isWindows && await VaultMode.encrypted(dir);
+    if (!encrypted && Platform.isWindows && await File(p.join(dir.path, 'keys.dpapi.json')).exists()) {
+      keyStore = DpapiFileKeyStore(File(p.join(dir.path, 'keys.dpapi.json')));
+    }
+    if (encrypted && vaultPassword == null) throw const VaultLocked();
+    final vault = encrypted ? await VaultSession.unlock(Directory(p.join(dir.path, 'vault')),
+      vaultPassword!, deviceId: deviceId) : null;
+    final store = vault?.notes.store ?? NoteStore.open(p.join(dir.path, 'notevibe.db'), deviceId: deviceId);
+    SyncService? startedSync;
+    try {
+    final attachments = vault?.attachments ?? AttachmentStorage(Directory(dir.path));
+    final unlockedKeyStore = vault == null ? keyStore : VaultKeyStore(
+      Directory(p.join(dir.path, 'vault', 'keys')), vault.notes.snapshots.key);
+    if (vault != null) {
+      final seed = await unlockedKeyStore.read('identity_x25519');
+      if (seed == null || seed.length != 32) {
+        throw const FormatException('Ключ идентификации отсутствует или повреждён. Требуется восстановить миграцию');
+      }
+    }
     final name = store.getSetting('device_name') ?? _defaultName();
-    final identity = await DeviceIdentity.loadOrCreate(keyStore, deviceId, name);
+    final identity = await DeviceIdentity.loadOrCreate(unlockedKeyStore, deviceId, name);
     final sync = SyncService(
       store: store,
-      peerKeys: PeerKeys(keyStore),
+      peerKeys: PeerKeys(unlockedKeyStore),
       identity: identity,
-      files: AttachmentStorage(Directory(dir.path)),
+      files: attachments,
     );
+    startedSync = sync;
     try {
       await sync.start();
     } catch (e) {
@@ -84,7 +142,24 @@ class AppServices {
     }
     store.pruneChangeLog();
     store.purgeExpiredTrash();
-    return AppServices(store, sync, AttachmentStorage(Directory(dir.path)));
+    return AppServices(store, sync, attachments, vault: vault, dataDirectory: dir,
+      legacyKeys: keyStore, applicationLock: appLock, startupArgs: args);
+    } catch (_) {
+      try {
+        await startedSync?.dispose();
+      } finally {
+        if (vault != null) {
+          await vault.close();
+        } else {
+          store.dispose();
+        }
+      }
+      rethrow;
+    }
+    } catch (_) {
+      await appLock?.release();
+      rethrow;
+    }
   }
 
   static String _defaultName() {
@@ -136,6 +211,13 @@ class NoteSelection extends Notifier<Set<String>?> {
 }
 
 final selectionProvider = NotifierProvider<NoteSelection, Set<String>?>(NoteSelection.new);
+
+class TransferSelection extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) => state = value;
+}
+final transferSelectionProvider = NotifierProvider<TransferSelection, bool>(TransferSelection.new);
 
 final notesProvider = Provider<List<Note>>((ref) {
   ref.watch(storeChangesProvider);
@@ -329,10 +411,14 @@ final voicePreviewProvider = NotifierProvider<VoicePreviewSetting, VoicePreview>
 
 /// Text size of notes, both in the editor and in the list.
 enum NoteFontSize {
+  tiny(0.75, 'Очень мелкий'),
   small(0.88, 'Мелкий'),
   normal(1.0, 'Обычный'),
+  medium(1.1, 'Чуть крупнее'),
   large(1.2, 'Крупный'),
-  huge(1.4, 'Очень крупный');
+  huge(1.4, 'Очень крупный'),
+  extraLarge(1.6, 'Большой'),
+  maximum(1.85, 'Максимальный');
 
   /// Multiplier applied to the default text size.
   final double scale;

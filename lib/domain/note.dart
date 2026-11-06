@@ -11,42 +11,58 @@ class NoteLine {
 
   /// `plain`, `bullet`, `unchecked` or `checked`.
   final String kind;
-  const NoteLine(this.text, this.kind);
+  final List<NoteRun> runs;
+  final Map<String, dynamic> attributes;
+  const NoteLine(this.text, this.kind, {this.runs = const [], this.attributes = const {}});
 }
 
-/// Splits Quill Delta JSON into lines with their list kind. Inline styles are dropped.
+class NoteRun {
+  final String text;
+  final Map<String, dynamic> attributes;
+  const NoteRun(this.text, this.attributes);
+}
+
+/// Splits Quill Delta JSON, retaining inline formatting and block attributes.
 /// Falls back to [plainText] if the Delta cannot be read.
 List<NoteLine> noteLines(String deltaJson, String plainText) {
   try {
     final ops = jsonDecode(deltaJson) as List;
     final lines = <NoteLine>[];
     final buf = StringBuffer();
+    final runs = <NoteRun>[];
     for (final op in ops) {
       if (op is! Map) continue;
       final insert = op['insert'];
       if (insert is! String) continue;
+      final attrs = op['attributes'] is Map ? Map<String, dynamic>.from(op['attributes'] as Map) : <String, dynamic>{};
+      void append(String text) {
+        if (text.isEmpty) return;
+        buf.write(text);
+        runs.add(NoteRun(text, attrs));
+      }
       var start = 0;
       while (true) {
         final nl = insert.indexOf('\n', start);
         if (nl < 0) {
-          buf.write(insert.substring(start));
+          append(insert.substring(start));
           break;
         }
-        buf.write(insert.substring(start, nl));
-        final attrs = op['attributes'];
-        final list = attrs is Map ? attrs['list'] : null;
+        append(insert.substring(start, nl));
+        final list = attrs['list'];
         final kind = switch (list) {
           'checked' => 'checked',
           'unchecked' => 'unchecked',
           'bullet' => 'bullet',
+          'ordered' => 'ordered',
           _ => 'plain',
         };
-        lines.add(NoteLine(buf.toString().trim(), kind));
+        lines.add(NoteLine(buf.toString(), kind, runs: List.of(runs), attributes: attrs));
         buf.clear();
+        runs.clear();
         start = nl + 1;
       }
     }
-    if (buf.isNotEmpty) lines.add(NoteLine(buf.toString().trim(), 'plain'));
+    if (buf.isNotEmpty) lines.add(NoteLine(buf.toString(), 'plain', runs: List.of(runs)));
     return lines;
   } catch (_) {
     return [for (final l in plainText.split('\n')) NoteLine(l.trim(), 'plain')];

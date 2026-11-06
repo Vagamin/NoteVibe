@@ -7,6 +7,7 @@ import '../../domain/attachment.dart';
 import '../providers.dart';
 import '../select_dot.dart';
 import 'attachment_service.dart';
+import '../voice/voice_player.dart';
 
 final attachmentServiceProvider = Provider<AttachmentService>((ref) {
   final s = ref.watch(servicesProvider);
@@ -27,6 +28,21 @@ final downloadingProvider = NotifierProvider<DownloadingNotifier, Set<String>>(D
 Future<void> addNoteAttachments(BuildContext context, WidgetRef ref, String noteId) async {
   final messenger = ScaffoldMessenger.of(context);
   try {
+    if (Platform.isAndroid) {
+      final source = await showModalBottomSheet<String>(context: context, builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('Фото из галереи'),
+            onTap: () => Navigator.pop(c, 'gallery')),
+          ListTile(leading: const Icon(Icons.attach_file), title: const Text('Выбрать файлы'),
+            onTap: () => Navigator.pop(c, 'files')),
+        ]),
+      ));
+      if (source == null) return;
+      if (source == 'gallery') {
+        await ref.read(attachmentServiceProvider).pickPhoto(noteId);
+        return;
+      }
+    }
     final result = await ref.read(attachmentServiceProvider).pickAndAttach(noteId);
     if (result.failed.isNotEmpty) {
       messenger.showSnackBar(SnackBar(content: Text(result.failed.join('\n'))));
@@ -129,6 +145,7 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
             ),
           ]),
         for (final a in items)
+          Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _AttachmentTile(
             attachment: a,
             present: svc.files.has(a.sha256),
@@ -143,11 +160,40 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
             onLocation: () => _run(context, () => svc.openLocation(a)),
             onDelete: () => _confirmRemove(context, svc, a),
             onTapSelect: selecting ? () => _toggle(a.id) : null,
+            preview: a.isImage && svc.files.has(a.sha256) ? _VerifiedThumbnail(attachment: a, service: svc) : null,
+            onRename: store.getSetting('attachment_rename') == 'true' ? () => _rename(a) : null,
           ),
+          if (a.mime.startsWith('audio/') && !selecting)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: VoicePlayer(attachment: a, svc: svc, remoteHeld: store.hasRemoteHolder(a.sha256), onDownload: () => _download(context, svc, a)),
+            ),
+          ]),
       ],
         ),
       ),
     );
+  }
+
+  Future<void> _rename(Attachment a) async {
+    final controller = TextEditingController(text: a.label);
+    final value = await showDialog<String>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Название в приложении'),
+      content: TextField(controller: controller, autofocus: true, maxLength: 200,
+        decoration: InputDecoration(hintText: a.name, helperText: 'Оригинальный файл не переименовывается'),
+        onSubmitted: (v) => Navigator.pop(c, v)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c), child: const Text('Отмена')),
+        TextButton(onPressed: () => Navigator.pop(c, ''), child: const Text('Сбросить')),
+        FilledButton(onPressed: () => Navigator.pop(c, controller.text), child: const Text('Сохранить')),
+      ],
+    ));
+    if (value != null && mounted) {
+      await _run(context, () async => ref.read(storeProvider).renameAttachment(a.id, value));
+    }
+    // Dialog route finishes its exit animation before releasing its controller.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    controller.dispose();
   }
 
   Future<void> _download(BuildContext context, AttachmentService svc, Attachment a) async {
@@ -165,15 +211,7 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
   }
 
   Future<void> _add(BuildContext context, AttachmentService svc) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final r = await svc.pickAndAttach(widget.noteId);
-      if (r.failed.isNotEmpty) {
-        messenger.showSnackBar(SnackBar(content: Text(r.failed.join('\n'))));
-      }
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Не удалось добавить файл: $e')));
-    }
+    await addNoteAttachments(context, ref, widget.noteId);
   }
 
   Future<void> _run(BuildContext context, Future<void> Function() action) async {
@@ -186,6 +224,15 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
   }
 
   Future<void> _saveCopy(BuildContext context, AttachmentService svc, Attachment a) async {
+    if (ref.read(servicesProvider).vault != null) {
+      final allowed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+        title: const Text('Сохранить без шифрования?'),
+        content: const Text('Экспортированная копия будет доступна без пароля приложения и не удалится при его закрытии.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Сохранить копию'))],
+      ));
+      if (allowed != true || !context.mounted) return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     try {
       final path = await svc.saveCopy(a);
@@ -213,7 +260,29 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
   }
 }
 
+class _VerifiedThumbnail extends StatefulWidget {
+  final Attachment attachment;
+  final AttachmentService service;
+  const _VerifiedThumbnail({required this.attachment, required this.service});
+  @override
+  State<_VerifiedThumbnail> createState() => _VerifiedThumbnailState();
+}
+
+class _VerifiedThumbnailState extends State<_VerifiedThumbnail> {
+  late final _bytes = widget.service.files.readVerified(widget.attachment.sha256, size: widget.attachment.size);
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
+    future: _bytes,
+    builder: (context, snapshot) => snapshot.hasData
+      ? Image.memory(snapshot.data!, width: 40, height: 40, cacheWidth: 120, fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined))
+      : Icon(snapshot.hasError ? Icons.broken_image_outlined : Icons.image_outlined),
+  );
+}
+
 class _AttachmentTile extends StatelessWidget {
+  final Widget? preview;
+  final VoidCallback? onRename;
   final Attachment attachment;
   final bool present;
   final bool remoteHeld;
@@ -229,6 +298,8 @@ class _AttachmentTile extends StatelessWidget {
   final VoidCallback onDelete;
 
   const _AttachmentTile({
+    this.preview,
+    this.onRename,
     required this.attachment,
     required this.present,
     required this.remoteHeld,
@@ -281,7 +352,10 @@ class _AttachmentTile extends StatelessWidget {
                 clipBehavior: Clip.none,
                 alignment: Alignment.center,
                 children: [
-                  Icon(attachment.isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined),
+                  if (preview != null)
+                    ClipRRect(borderRadius: BorderRadius.circular(8), child: preview)
+                  else
+                    Icon(attachment.isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined),
                   Positioned(
                     right: 0,
                     bottom: 0,
@@ -304,7 +378,7 @@ class _AttachmentTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(attachment.name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                Text(attachment.label, maxLines: 2, overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text('${attachment.sizeLabel} · ${present ? 'На устройстве' : remoteHeld ? 'Удалённо' : 'Недоступен'}',
@@ -327,9 +401,14 @@ class _AttachmentTile extends StatelessWidget {
             menuPadding: const EdgeInsets.all(8),
             color: Theme.of(context).cardTheme.color,
             surfaceTintColor: Colors.transparent,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            elevation: 12,
+            shadowColor: Colors.black.withValues(alpha: 0.3),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: scheme.outlineVariant)),
             onSelected: (v) {
               switch (v) {
+                case 'rename':
+                  onRename?.call();
                 case 'open':
                   onOpen();
                 case 'save':
@@ -343,6 +422,7 @@ class _AttachmentTile extends StatelessWidget {
               }
             },
             itemBuilder: (_) => [
+              if (onRename != null) const PopupMenuItem(value: 'rename', child: Text('Изменить название')),
               if (present) const PopupMenuItem(value: 'open', child: Text('Открыть файл')),
               if (present) const PopupMenuItem(value: 'save', child: Text('Сохранить копию')),
               if (isDesktop && hasSavedCopy)

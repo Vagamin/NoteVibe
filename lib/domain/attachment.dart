@@ -4,6 +4,8 @@ class Attachment {
   final String id;
   final String noteId;
   final String name;
+  final String? displayName;
+  String get label => displayName ?? name;
   final String mime;
   final int size;
   final String sha256;
@@ -13,6 +15,7 @@ class Attachment {
     required this.id,
     required this.noteId,
     required this.name,
+    this.displayName,
     required this.mime,
     required this.size,
     required this.sha256,
@@ -24,6 +27,7 @@ class Attachment {
   Map<String, dynamic> toWire() => {
         'id': id,
         'name': name,
+        if (displayName != null) 'displayName': displayName,
         'mime': mime,
         'size': size,
         'sha256': sha256,
@@ -34,6 +38,7 @@ class Attachment {
         id: m['id'] as String,
         noteId: noteId,
         name: m['name'] as String,
+        displayName: m['displayName'] as String?,
         mime: m['mime'] as String? ?? '',
         size: (m['size'] as num).toInt(),
         sha256: m['sha256'] as String,

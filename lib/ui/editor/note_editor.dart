@@ -13,6 +13,9 @@ import '../attachments/attachments_panel.dart';
 import '../providers.dart';
 import '../voice/voice_panel.dart';
 import '../widgets/note_info_button.dart';
+import '../widgets/reminder_button.dart';
+import 'format_glyph.dart';
+import 'dart:io';
 
 
 /// Editor for a single note with debounced autosave.
@@ -35,23 +38,29 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   final _title = TextEditingController();
   final _editorFocus = FocusNode();
   final _scroll = ScrollController();
+  final _quillScroll = ScrollController();
+  final _renderKey = GlobalKey<EditorState>();
+  bool _caretPending = false;
   StreamSubscription<DocChange>? _docSub;
   StreamSubscription<void>? _storeSub;
   Timer? _saveTimer;
   bool _dirty = false;
   Note? _note;
   String? _saveError;
+  late final AppServices _services;
 
   NoteStore get _store => ref.read(storeProvider);
 
   @override
   void initState() {
     super.initState();
+    _services = ref.read(servicesProvider);
     WidgetsBinding.instance.addObserver(this);
     _quill = QuillController.basic();
     _load();
     _title.addListener(_onEdited);
     _storeSub = _store.changes.listen((_) => _onStoreChanged());
+    _services.pendingEditors.add(_flushForShutdown);
   }
 
   void _load() {
@@ -70,8 +79,20 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       selection: const TextSelection.collapsed(offset: 0),
     );
     _docSub = _quill.changes.listen((c) {
-      if (c.source == ChangeSource.local) _onEdited();
+      if (c.source == ChangeSource.local) {
+        _onEdited();
+        if (c.change.toList().any((op) => op.isInsert && op.data is String && (op.data as String).contains('\n'))) {
+          final controller = _quill;
+          scheduleMicrotask(() {
+            if (!mounted || !identical(controller, _quill)) return;
+            if (_quill.getSelectionStyle().attributes[Attribute.list.key]?.value == 'checked') {
+              _quill.formatSelection(Attribute.unchecked);
+            }
+          });
+        }
+      }
     });
+    _quill.addListener(_keepCaretVisible);
     if (!identical(oldQuill, _quill)) oldQuill.dispose();
     _title.removeListener(_onEdited);
     _title.text = n?.title ?? '';
@@ -109,6 +130,37 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     _saveTimer = Timer(const Duration(milliseconds: 500), _save);
   }
 
+  @override
+  void didChangeMetrics() => _keepCaretVisible();
+
+  void _keepCaretVisible() {
+    if (!mounted || !_editorFocus.hasFocus || _caretPending || _store.getSetting('keep_input_visible') == 'false') return;
+    _caretPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _caretPending = false;
+      if (!mounted || !_editorFocus.hasFocus || !_scroll.hasClients) return;
+      final render = _renderKey.currentState?.renderEditor;
+      if (render == null || !render.attached || !_quill.selection.isValid) return;
+      final rect = render.getLocalRectForCaret(TextPosition(offset: _quill.selection.extentOffset));
+      final origin = render.localToGlobal(Offset.zero);
+      final top = origin.dy + rect.top;
+      final bottom = origin.dy + rect.bottom;
+      final viewport = _scroll.position.context.storageContext.findRenderObject();
+      if (viewport is! RenderBox || !viewport.hasSize) return;
+      final viewportTop = viewport.localToGlobal(Offset.zero).dy;
+      final viewportBottom = viewportTop + viewport.size.height - 24;
+      final delta = bottom > viewportBottom ? bottom - viewportBottom : top < viewportTop + 16 ? top - viewportTop - 16 : 0.0;
+      if (delta.abs() > 1) {
+        _scroll.jumpTo((_scroll.offset + delta).clamp(_scroll.position.minScrollExtent, _scroll.position.maxScrollExtent));
+      }
+    });
+  }
+
+  void _flushForShutdown() {
+    _save();
+    if (_dirty) throw StateError('Редактор не смог сохранить изменения');
+  }
+
   void _save() {
     _saveTimer?.cancel();
     if (!_dirty) return;
@@ -132,6 +184,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
 
   @override
   void dispose() {
+    _services.pendingEditors.remove(_flushForShutdown);
     _save();
     WidgetsBinding.instance.removeObserver(this);
     _saveTimer?.cancel();
@@ -141,6 +194,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     _title.dispose();
     _editorFocus.dispose();
     _scroll.dispose();
+    _quillScroll.dispose();
     super.dispose();
   }
 
@@ -225,7 +279,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               controller: _scroll,
               padding: EdgeInsets.symmetric(horizontal: widget.compact ? 20 : 32, vertical: 12),
               children: [
-                TextField(
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: TextField(
                   controller: _title,
                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                      fontWeight: FontWeight.w700,
@@ -241,7 +295,9 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   ),
                   textInputAction: TextInputAction.next,
                   onSubmitted: (_) => _editorFocus.requestFocus(),
-                ),
+                )),
+                if (Platform.isAndroid) ReminderButton(noteId: widget.noteId, title: _title.text),
+                ]),
                 const SizedBox(height: 4),
                 const SizedBox(height: 16),
                 if (note.isVoice)
@@ -250,9 +306,13 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   QuillEditor(
                     controller: _quill,
                     focusNode: _editorFocus,
-                    scrollController: ScrollController(),
+                    scrollController: _quillScroll,
                     config: QuillEditorConfig(
                       scrollable: false,
+                      editorKey: _renderKey,
+                      customStyleBuilder: (attribute) => attribute.key == Attribute.list.key && attribute.value == 'checked'
+                        ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), decoration: TextDecoration.lineThrough)
+                        : const TextStyle(),
                       placeholder: 'Начните писать…',
                       padding: const EdgeInsets.only(bottom: 120),
                       customStyles: _styles(context),
@@ -279,7 +339,19 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   DefaultStyles _styles(BuildContext context) {
     final scale = ref.watch(noteFontSizeProvider).scale;
     final base = Theme.of(context).textTheme.bodyLarge!.copyWith(fontSize: 17 * scale, height: 1.5);
+    final defaults = DefaultStyles.getInstance(context);
+    DefaultTextBlockStyle? scaled(DefaultTextBlockStyle? style) => style?.copyWith(
+      style: style.style.copyWith(fontSize: (style.style.fontSize ?? 17) * scale));
     return DefaultStyles(
+      lists: defaults.lists?.copyWith(style: base, checkboxUIBuilder: _StableCheckboxBuilder(scale)),
+      h1: scaled(defaults.h1), h2: scaled(defaults.h2), h3: scaled(defaults.h3),
+      h4: scaled(defaults.h4), h5: scaled(defaults.h5), h6: scaled(defaults.h6),
+      quote: scaled(defaults.quote), code: scaled(defaults.code),
+      indent: scaled(defaults.indent), align: scaled(defaults.align),
+      leading: scaled(defaults.leading), placeHolder: scaled(defaults.placeHolder),
+      sizeSmall: TextStyle(fontSize: 12 * scale),
+      sizeLarge: TextStyle(fontSize: 22 * scale),
+      sizeHuge: TextStyle(fontSize: 28 * scale),
       paragraph: DefaultTextBlockStyle(
         base,
         HorizontalSpacing.zero,
@@ -289,6 +361,20 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       ),
     );
   }
+}
+
+// Avoid ink animations migrating between list blocks when Quill rebuilds them.
+class _StableCheckboxBuilder extends QuillCheckboxBuilder {
+  final double scale;
+  _StableCheckboxBuilder(this.scale);
+  @override
+  Widget build({required BuildContext context, required bool isChecked, required ValueChanged<bool> onChanged}) =>
+    Semantics(checked: isChecked, label: 'Пункт списка', onTap: () => onChanged(!isChecked), child: GestureDetector(
+      behavior: HitTestBehavior.opaque, onTap: () => onChanged(!isChecked),
+      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Icon(isChecked ? Icons.check_box : Icons.check_box_outline_blank, size: 22 * scale,
+          color: isChecked ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline)),
+    ));
 }
 
 class _ConflictBanner extends StatelessWidget {
@@ -335,15 +421,17 @@ class FormatToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    const size = 20.0;
+    const size = 24.0;
     final factor = large ? 40 / size : 32 / size;
     final buttonSize = large ? 40.0 : 32.0;
     final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
     final iconTheme = QuillIconTheme(
       iconButtonSelectedData: IconButtonData(
+        iconSize: size,
         style: IconButton.styleFrom(minimumSize: Size.square(buttonSize), padding: EdgeInsets.zero, backgroundColor: scheme.primaryContainer, foregroundColor: scheme.onPrimaryContainer, shape: shape),
       ),
       iconButtonUnselectedData: IconButtonData(
+        iconSize: size,
         style: IconButton.styleFrom(minimumSize: Size.square(buttonSize), padding: EdgeInsets.zero, foregroundColor: scheme.onSurfaceVariant, shape: shape),
       ),
     );
@@ -372,17 +460,17 @@ class FormatToolbar extends StatelessWidget {
               QuillToolbarToggleStyleButton(
                 controller: controller,
                 attribute: Attribute.bold,
-                options: opts.copyWithTooltip('Жирный (Ctrl+B)', Icons.format_bold),
+                options: opts.copyWithTooltip('Жирный (Ctrl+B)', Icons.format_bold, (o,e) => _command(context, 'bold', 'Жирный (Ctrl+B)', e.onPressed, selected: e.isToggled)),
               ),
               QuillToolbarToggleStyleButton(
                 controller: controller,
                 attribute: Attribute.italic,
-                options: opts.copyWithTooltip('Курсив (Ctrl+I)', Icons.format_italic),
+                options: opts.copyWithTooltip('Курсив (Ctrl+I)', Icons.format_italic, (o,e) => _command(context, 'italic', 'Курсив (Ctrl+I)', e.onPressed, selected: e.isToggled)),
               ),
               QuillToolbarToggleStyleButton(
                 controller: controller,
                 attribute: Attribute.underline,
-                options: opts.copyWithTooltip('Подчёркнутый (Ctrl+U)', Icons.format_underline),
+                options: opts.copyWithTooltip('Подчёркнутый (Ctrl+U)', Icons.format_underline, (o,e) => _command(context, 'underline', 'Подчёркнутый (Ctrl+U)', e.onPressed, selected: e.isToggled)),
               ),
               divider,
               QuillToolbarToggleCheckListButton(
@@ -393,25 +481,31 @@ class FormatToolbar extends StatelessWidget {
                   tooltip: 'Чек-лист',
                    iconData: Icons.checklist,
                    iconTheme: iconTheme,
+                    childBuilder: (dynamic o, dynamic e) => _command(context, 'check', 'Чек-лист', e.onPressed as VoidCallback?, selected: e.isToggled as bool),
                 ),
               ),
               QuillToolbarToggleStyleButton(
                 controller: controller,
                 attribute: Attribute.ul,
-                options: opts.copyWithTooltip('Список', Icons.format_list_bulleted),
+                options: opts.copyWithTooltip('Список', Icons.format_list_bulleted, (o,e) => _command(context, 'list', 'Список', e.onPressed, selected: e.isToggled)),
               ),
+              divider,
+              _colorButton(context, background: false),
+              _colorButton(context, background: true),
               divider,
               QuillToolbarHistoryButton(
                 controller: controller,
                 isUndo: true,
                 options: QuillToolbarHistoryButtonOptions(
-                    iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme, tooltip: 'Отменить'),
+                    iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme, tooltip: 'Отменить',
+                     childBuilder: (dynamic o, dynamic e) => _command(context, 'undo', 'Отменить', e.onPressed as VoidCallback?)),
               ),
               QuillToolbarHistoryButton(
                 controller: controller,
                 isUndo: false,
                 options: QuillToolbarHistoryButtonOptions(
-                    iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme, tooltip: 'Повторить'),
+                    iconSize: size, iconButtonFactor: factor, iconTheme: iconTheme, tooltip: 'Повторить',
+                     childBuilder: (dynamic o, dynamic e) => _command(context, 'redo', 'Повторить', e.onPressed as VoidCallback?)),
               ),
             ],
           ),
@@ -421,15 +515,74 @@ class FormatToolbar extends StatelessWidget {
       ),
     );
   }
+
+  Widget _command(BuildContext context, String glyph, String tooltip, VoidCallback? onPressed, {bool selected = false}) => IconButton(
+    tooltip: tooltip,
+    style: IconButton.styleFrom(
+      fixedSize: Size.square(large ? 40 : 32), minimumSize: Size.square(large ? 40 : 32),
+      padding: EdgeInsets.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      foregroundColor: selected ? Theme.of(context).colorScheme.onPrimaryContainer : Theme.of(context).colorScheme.onSurfaceVariant,
+      backgroundColor: selected ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    icon: FormatGlyph(glyph), onPressed: onPressed,
+  );
+
+  Widget _colorButton(BuildContext context, {required bool background}) => ListenableBuilder(
+    listenable: controller, builder: (context, _) {
+    final value = controller.getSelectionStyle().attributes[background ? 'background' : 'color']?.value;
+    final hex = value is String ? int.tryParse(value.replaceFirst('#', ''), radix: 16) : null;
+    final active = hex == null ? Theme.of(context).colorScheme.onSurfaceVariant : Color(hex | 0xFF000000);
+    return IconButton(
+    style: IconButton.styleFrom(
+      fixedSize: Size.square(large ? 40 : 32),
+      minimumSize: Size.square(large ? 40 : 32),
+      padding: EdgeInsets.zero,
+      foregroundColor: active,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    ),
+    tooltip: background ? 'Цвет выделения' : 'Цвет текста',
+    iconSize: 24,
+    icon: FormatGlyph(background ? 'highlight' : 'color'),
+    onPressed: () async {
+      final selection = controller.selection;
+      final picked = await showDialog<String>(context: context, builder: (c) => SimpleDialog(
+        title: Text(background ? 'Цвет выделения' : 'Цвет текста'),
+        children: [
+          Padding(padding: const EdgeInsets.all(16), child: Wrap(spacing: 12, runSpacing: 12, children: [
+            for (final entry in const <String, String>{
+              '#D32F2F': 'Красный', '#EF6C00': 'Оранжевый', '#FBC02D': 'Жёлтый',
+              '#388E3C': 'Зелёный', '#1976D2': 'Синий', '#7B1FA2': 'Фиолетовый',
+              '#000000': 'Чёрный', '#FFFFFF': 'Белый',
+            }.entries)
+              IconButton.filledTonal(
+                tooltip: entry.value,
+                onPressed: () => Navigator.pop(c, entry.key),
+                icon: Container(width: 28, height: 28, decoration: BoxDecoration(
+                  color: Color(int.parse(entry.key.substring(1), radix: 16) | 0xFF000000),
+                  shape: BoxShape.circle, border: Border.all(color: Theme.of(c).colorScheme.outline))),
+              ),
+          ])),
+          SimpleDialogOption(onPressed: () => Navigator.pop(c, ''), child: const Text('Сбросить цвет')),
+        ],
+      ));
+      if (picked == null || !context.mounted) return;
+      controller.updateSelection(selection, ChangeSource.local);
+      controller.formatSelection(Attribute.fromKeyValue(background ? 'background' : 'color', picked.isEmpty ? null : picked));
+    },
+  ); });
 }
 
 extension on QuillToolbarToggleStyleButtonOptions {
-  QuillToolbarToggleStyleButtonOptions copyWithTooltip(String tooltip, IconData icon) =>
+  QuillToolbarToggleStyleButtonOptions copyWithTooltip(String tooltip, IconData icon,
+      Widget Function(QuillToolbarToggleStyleButtonOptions, QuillToolbarToggleStyleButtonExtraOptions) builder) =>
       QuillToolbarToggleStyleButtonOptions(
         iconSize: iconSize,
         iconButtonFactor: iconButtonFactor,
         iconTheme: iconTheme,
         tooltip: tooltip,
         iconData: icon,
+        childBuilder: (dynamic o, dynamic e) => builder(o as QuillToolbarToggleStyleButtonOptions, e as QuillToolbarToggleStyleButtonExtraOptions),
       );
 }

@@ -18,12 +18,120 @@ import java.io.File
  */
 class MainActivity : FlutterActivity() {
     private var lock: WifiManager.MulticastLock? = null
+    private var galleryResult: MethodChannel.Result? = null
+    private var notificationResult: MethodChannel.Result? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 8042) {
+            notificationResult?.success(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED)
+            notificationResult = null
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 8041) return
+        val reply = galleryResult ?: return
+        galleryResult = null
+        val uri = data?.data
+        if (resultCode != android.app.Activity.RESULT_OK || uri == null) {
+            reply.success(null)
+            return
+        }
+        // Stream on a worker: never load a full image into the Android UI thread.
+        Thread {
+            var output: File? = null
+            try {
+                var name = "Фото"
+                contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                    if (it.moveToFirst()) name = it.getString(0) ?: name
+                }
+                val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                require(mime.startsWith("image/")) { "Выберите изображение" }
+                val folder = File(cacheDir, "notevibe_gallery").apply { mkdirs() }
+                val target = File.createTempFile("photo-", ".tmp", folder)
+                output = target
+                contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "Не удалось прочитать фото" }
+                    target.outputStream().use { sink ->
+                        val buffer = ByteArray(65536)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= 100L * 1024 * 1024) { "Фото больше 100 МБ" }
+                            sink.write(buffer, 0, count)
+                        }
+                    }
+                }
+                runOnUiThread { reply.success(mapOf("path" to target.absolutePath, "name" to name, "mime" to mime)) }
+            } catch (e: Exception) {
+                output?.delete()
+                runOnUiThread { reply.error("gallery", e.message, null) }
+            }
+        }.start()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "notevibe/update")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "reminderPermission" -> {
+                        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            if (notificationResult != null) result.error("busy", "Запрос разрешения уже открыт", null)
+                            else {
+                                notificationResult = result
+                                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 8042)
+                            }
+                        } else result.success(androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled())
+                    }
+                    "reminderExactAllowed" -> result.success(Build.VERSION.SDK_INT < 31 || (getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).canScheduleExactAlarms())
+                    "reminderExactSettings" -> {
+                        if (Build.VERSION.SDK_INT >= 31) startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+                        result.success(null)
+                    }
+                    "reminderSchedule" -> {
+                        try {
+                            NoteReminderReceiver.schedule(this, call.argument<String>("id")!!, call.argument<String>("title") ?: "Заметка", call.argument<Number>("at")!!.toLong())
+                            result.success(null)
+                        } catch (e: Exception) { result.error("reminder", e.message, null) }
+                    }
+                    "reminderCancel" -> {
+                        NoteReminderReceiver.cancel(this, call.argument<String>("id")!!)
+                        result.success(null)
+                    }
+                    "reminderGet" -> result.success(getSharedPreferences("note_reminders", Context.MODE_PRIVATE).getString(call.argument<String>("id"), null))
+                    "reminderOpenNote" -> {
+                        val id = intent?.getStringExtra("reminderNoteId")
+                        intent?.removeExtra("reminderNoteId")
+                        result.success(id)
+                    }
+                    "pickPhoto" -> {
+                        if (galleryResult != null) {
+                            result.error("busy", "Выбор фото уже открыт", null)
+                        } else {
+                            galleryResult = result
+                            try {
+                                val intent = if (Build.VERSION.SDK_INT >= 33) {
+                                    Intent("android.provider.action.PICK_IMAGES").setType("image/*")
+                                } else {
+                                    Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+                                }
+                                startActivityForResult(intent, 8041)
+                            } catch (e: Exception) {
+                                galleryResult = null
+                                result.error("gallery", e.message, null)
+                            }
+                        }
+                    }
                     "abi" -> result.success(Build.SUPPORTED_ABIS.firstOrNull() ?: "")
                     "canInstall" -> result.success(
                         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()

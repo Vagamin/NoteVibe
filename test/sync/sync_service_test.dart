@@ -7,7 +7,7 @@ import 'package:notevibe/sync/crypto/secure_channel.dart';
 import 'package:notevibe/sync/pairing/pairing.dart';
 import 'package:notevibe/sync/sync_service.dart';
 
-Future<SyncService> makeService(String id) async {
+Future<SyncService> makeService(String id, {String? kind}) async {
   final store = NoteStore.inMemory(deviceId: id);
   final ks = MemoryKeyStore();
   final ident = await DeviceIdentity.loadOrCreate(ks, id, 'Device $id');
@@ -15,6 +15,7 @@ Future<SyncService> makeService(String id) async {
     store: store,
     peerKeys: PeerKeys(ks),
     identity: ident,
+    deviceKind: kind ?? (id == 'PHONE' ? 'phone' : 'pc'),
     enableDiscovery: false,
     kdf: CodeKdf.fast,
     debounce: const Duration(milliseconds: 50),
@@ -32,6 +33,21 @@ Future<void> waitFor(bool Function() cond, {Duration timeout = const Duration(se
 }
 
 void main() {
+  test('same-kind pairing is rejected without storing trust', () async {
+    final a = await makeService('A', kind: 'pc');
+    final b = await makeService('B', kind: 'pc');
+    try {
+      final (offer, _) = await a.createPairingOffer();
+      await expectLater(b.pairWithCode('127.0.0.1', a.port, offer.code), throwsA(isA<PairingException>()));
+      expect(a.store.listPeers(), isEmpty);
+      expect(b.store.listPeers(), isEmpty);
+      expect(await a.peerKeys.get('B'), isNull);
+      expect(await b.peerKeys.get('A'), isNull);
+    } finally {
+      await a.dispose(); await b.dispose();
+      a.store.dispose(); b.store.dispose();
+    }
+  });
   late SyncService pc, phone;
 
   setUp(() async {
@@ -47,6 +63,8 @@ void main() {
   });
 
   test('QR pairing over TCP then automatic sync both ways', () async {
+    expect(pc.deviceKind, 'pc');
+    expect(phone.deviceKind, 'phone');
     pc.store.createNote(title: 'PC note');
     final (_, qr) = await pc.createPairingOffer();
     final parsed = PairingQr.tryParse(qr.encode())!;

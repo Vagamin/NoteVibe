@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../data/attachment_storage.dart';
+import '../../data/vault/encrypted_attachment_storage.dart';
 import '../../data/note_store.dart';
 import '../../data/temporary_cache.dart';
 import '../../domain/attachment.dart';
@@ -18,6 +19,21 @@ class AttachmentService {
   final AttachmentStorage files;
   final SyncService sync;
   AttachmentService(this.store, this.files, this.sync);
+
+  Future<void> pickPhoto(String noteId) async {
+    final selected = await const MethodChannel('notevibe/update').invokeMapMethod<String, dynamic>('pickPhoto');
+    if (selected == null) return;
+    final file = File(selected['path'] as String);
+    try {
+      final size = await file.length();
+      if (size > maxAttachmentBytes) throw const FormatException('Фото больше 100 МБ');
+      final hash = await files.save(await file.readAsBytes());
+      store.addAttachment(noteId: noteId, name: selected['name'] as String,
+        mime: selected['mime'] as String, size: size, sha256: hash);
+    } finally {
+      if (await file.exists()) await file.delete();
+    }
+  }
 
   /// Lets the user pick files and attaches them to [noteId]. Returns the
   /// number of attached files; files that are too big are skipped with a message.
@@ -33,7 +49,7 @@ class AttachmentService {
       final file = File(path);
       final size = await file.length();
       if (size > maxAttachmentBytes) {
-        result.failed.add('${f.name}: больше 50 МБ');
+        result.failed.add('${f.name}: больше 100 МБ');
         continue;
       }
       final bytes = await file.readAsBytes();
@@ -52,6 +68,7 @@ class AttachmentService {
 
   /// Path of the recording for playback. Verified copy, so a damaged file is not played.
   Future<String> playablePath(Attachment a) async {
+    if (files is EncryptedAttachmentStorage) throw UnsupportedError('Зашифрованная запись воспроизводится только из памяти');
     final dir = await getTemporaryDirectory();
     final ext = p.extension(a.name).isEmpty ? '.bin' : p.extension(a.name);
     final out = File(p.join(dir.path, 'notevibe_play', '${a.sha256}$ext'));
@@ -66,6 +83,7 @@ class AttachmentService {
   }
 
   Future<void> open(Attachment a) async {
+    if (files is EncryptedAttachmentStorage) throw UnsupportedError('Сначала явно сохраните открытую копию файла. Она больше не будет защищена паролем приложения.');
     final file = files.fileFor(a.sha256);
     if (!await file.exists()) throw const FileSystemException('Файл не найден на этом устройстве');
     final tmp = File(p.join(Directory.systemTemp.path, 'notevibe_open', a.name));
@@ -155,13 +173,7 @@ class AttachmentService {
   }
 
   Future<Uint8List> _verifiedBytes(Attachment a) async {
-    final file = files.fileFor(a.sha256);
-    if (!await file.exists()) throw const FileSystemException('Файл не найден на этом устройстве');
-    final bytes = await file.readAsBytes();
-    if (AttachmentStorage.sha256Of(bytes) != a.sha256) {
-      throw const FileSystemException('Файл повреждён (контрольная сумма не совпадает)');
-    }
-    return bytes;
+    return files.readVerified(a.sha256, size: a.size);
   }
 
   /// Downloads the bytes from a paired device (the attachment is missing here).

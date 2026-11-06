@@ -13,6 +13,8 @@ import '../../sync/sync_service.dart';
 import '../../data/temporary_cache.dart';
 import 'voice_service.dart';
 import 'recording_envelope.dart';
+import 'memory_audio.dart';
+import '../../data/vault/encrypted_attachment_storage.dart';
 
 /// Id of the recording that plays now. Starting one pauses the others.
 class ActiveVoiceNotifier extends Notifier<String?> {
@@ -54,9 +56,28 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
   Duration _pos = Duration.zero;
   Duration _len = Duration.zero;
   String? _path;
+  MemoryAudio? _memoryAudio;
   String? _error;
   bool _loadingDuration = false;
   bool _cacheReleased = false;
+
+  Future<String> _audioPath() async {
+    if (widget.svc.files is EncryptedAttachmentStorage) {
+      final bytes = await widget.svc.files.readVerified(widget.attachment.sha256, size: widget.attachment.size);
+      _memoryAudio = await MemoryAudio.create(bytes, widget.attachment.mime);
+      if (!mounted) await _memoryAudio?.close();
+      return _memoryAudio!.url;
+    }
+    return widget.svc.playablePath(widget.attachment);
+  }
+
+  Future<void> _setSource() async {
+    if (_memoryAudio != null) {
+      await _player.setUrl(_path!);
+    } else {
+      await _player.setFilePath(_path!);
+    }
+  }
 
   void _releaseCache() {
     if (_path != null && !_cacheReleased) {
@@ -104,9 +125,9 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
     if (_loadingDuration) return;
     _loadingDuration = true;
     try {
-      _path ??= await widget.svc.playablePath(widget.attachment);
+      _path ??= await _audioPath();
       if (!mounted) { _releaseCache(); return; }
-      await _player.setFilePath(_path!);
+      await _setSource();
     } catch (_) {
       // Length stays unknown; playing the recording still reports the error.
     } finally {
@@ -120,7 +141,7 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
       s.cancel();
     }
     _wave.dispose();
-    _player.dispose().whenComplete(_releaseCache);
+    _player.dispose().whenComplete(() async { _releaseCache(); await _memoryAudio?.close(); });
     super.dispose();
   }
 
@@ -131,11 +152,11 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
     }
     try {
       if (_loadingDuration) return;
-      _path ??= await widget.svc.playablePath(widget.attachment);
+      _path ??= await _audioPath();
       if (!mounted) { _releaseCache(); return; }
       ref.read(activeVoiceProvider.notifier).set(widget.attachment.id);
       if (_player.audioSource == null) {
-        await _player.setFilePath(_path!);
+        await _setSource();
       }
       if (_player.processingState == ProcessingState.completed) {
         await _player.seek(Duration.zero);
@@ -358,7 +379,7 @@ class _RecordingWaveState extends State<RecordingWave> with SingleTickerProvider
   void _tick() {
     final now = _clock.elapsedMicroseconds;
     final level = widget.service.inputLevel;
-    final visualLevel = Platform.isWindows ? math.pow(level, 0.7).toDouble() : level;
+    final visualLevel = Platform.isWindows ? math.pow(level, 0.7).toDouble() : ((level - 0.18) / 0.82).clamp(0.0, 1.0);
     _signal = _envelope.advance(visualLevel, (now - _lastMicros) / 1000000);
     _lastMicros = now;
     setState(() {});

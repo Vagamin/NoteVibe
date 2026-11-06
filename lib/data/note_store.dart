@@ -10,6 +10,7 @@ import '../domain/note.dart';
 import '../domain/peer.dart';
 import '../domain/version_vector.dart';
 import 'schema.dart';
+import 'attachment_storage.dart' show maxAttachmentBytes;
 
 class ApplyResult {
   int applied = 0;
@@ -26,12 +27,21 @@ class ApplyResult {
 /// increasing `seq`. Sync uses `seq` as a resumable cursor.
 class NoteStore {
   final Database _db;
+  final bool _ownsDatabase;
   final String deviceId;
   final DateTime Function() _now;
   final _changes = StreamController<void>.broadcast(sync: true);
   static const _uuid = Uuid();
 
-  NoteStore._(this._db, this.deviceId, this._now);
+  NoteStore._(this._db, this.deviceId, this._now, [this._ownsDatabase = true]);
+
+  /// Uses an externally owned RAM-backed database. Its owner must flush
+  /// encrypted persistence before closing it, and dispose this store first.
+  static NoteStore fromVaultDatabase(Database database, {required String deviceId, DateTime Function()? now}) {
+    database.execute('PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY;');
+    migrate(database);
+    return NoteStore._(database, deviceId, now ?? DateTime.now, false);
+  }
 
   static NoteStore open(String path, {required String deviceId, DateTime Function()? now}) {
     final db = sqlite3.open(path);
@@ -56,7 +66,7 @@ class NoteStore {
 
   void dispose() {
     _changes.close();
-    _db.close();
+    if (_ownsDatabase) _db.close();
   }
 
   T _tx<T>(T Function() body) {
@@ -334,6 +344,54 @@ class NoteStore {
     return note;
   }
 
+  /// Imports an explicitly accepted one-time transfer as independent local copies.
+  /// File bytes must be verified and stored before calling this method.
+  /// Sender IDs, history, archive/trash state and pairing are never imported.
+  List<Note> importTransferredNotes(List<RemoteNote> items) {
+    if (items.isEmpty || items.length > 100) {
+      throw const FormatException('Передавайте от 1 до 100 заметок за раз');
+    }
+    final result = _tx(() {
+      final notes = <Note>[];
+      var position = _db.select('SELECT COALESCE(MIN(position), 0) FROM notes WHERE deleted = 0').first.values.first as int;
+      for (final item in items) {
+        final source = item.note;
+        if (source.deleted || source.trashedAt != null || !const ['text', 'voice'].contains(source.kind) ||
+            source.content.length > 4 * 1024 * 1024 || source.title.length > 10000 || item.attachments.length > 100) {
+          throw const FormatException('Некорректная передаваемая заметка');
+        }
+        final ops = jsonDecode(source.content);
+        if (ops is! List || ops.isEmpty || ops.any((op) => op is! Map || op['insert'] is! String ||
+            op.containsKey('delete') || op.containsKey('retain')) ||
+            !(ops.last['insert'] as String).endsWith('\n')) {
+          throw const FormatException('Некорректный текст заметки');
+        }
+        final plain = ops.map((op) => op['insert'] as String).join();
+        final now = _now();
+        final note = Note(id: _uuid.v4(), title: source.title, content: source.content,
+          plainText: plain, createdAt: now, updatedAt: now,
+          version: VersionVector.empty.increment(deviceId), lastDevice: deviceId,
+          kind: source.kind, position: --position);
+        final seq = _appendLog(note.id, 'upsert', note.version, deviceId);
+        _writeNote(note, seq, dismissed: const []);
+        for (final a in item.attachments) {
+          if (a.size < 0 || a.size > maxAttachmentBytes || !RegExp(r'^[a-f0-9]{64}$').hasMatch(a.sha256) ||
+              a.name.isEmpty || a.name.length > 255 || a.name.contains(RegExp(r'[\\/\x00-\x1f]')) ||
+              a.name == '.' || a.name == '..' || a.mime.length > 255 ||
+              (a.displayName != null && (a.displayName!.length > 200 || a.displayName!.contains(RegExp(r'[\x00-\x1f]'))))) {
+            throw const FormatException('Некорректное вложение');
+          }
+          _db.execute('INSERT INTO attachments (id, note_id, name, mime, size, sha256, created, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [_uuid.v4(), note.id, a.name, a.mime, a.size, a.sha256, now.millisecondsSinceEpoch, a.displayName]);
+        }
+        notes.add(note);
+      }
+      return notes;
+    });
+    _notify();
+    return result;
+  }
+
   /// Saves a local edit. Returns the updated note, or null if nothing changed.
   Note? updateNote(String id, {String? title, String? content, String? plainText}) {
     final result = _tx(() {
@@ -511,8 +569,8 @@ class NoteStore {
     _db.execute('DELETE FROM attachments WHERE note_id = ?', [rn.note.id]);
     for (final a in rn.attachments) {
       _db.execute(
-        'INSERT OR IGNORE INTO attachments (id, note_id, name, mime, size, sha256, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [a.id, rn.note.id, a.name, a.mime, a.size, a.sha256, a.createdAt.millisecondsSinceEpoch],
+        'INSERT OR IGNORE INTO attachments (id, note_id, name, mime, size, sha256, created, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [a.id, rn.note.id, a.name, a.mime, a.size, a.sha256, a.createdAt.millisecondsSinceEpoch, a.displayName],
       );
     }
   }
@@ -595,6 +653,7 @@ class NoteStore {
         id: r['id'] as String,
         noteId: r['note_id'] as String,
         name: r['name'] as String,
+        displayName: r['display_name'] as String?,
         mime: r['mime'] as String,
         size: r['size'] as int,
         sha256: r['sha256'] as String,
@@ -628,6 +687,29 @@ class NoteStore {
     );
     touchNote(noteId);
     return a;
+  }
+
+  void renameAttachment(String id, String label) {
+    final trimmed = label.trim();
+    if (trimmed.length > 200 || trimmed.contains(RegExp(r'[\x00-\x1f]'))) {
+      throw ArgumentError('Название должно быть до 200 символов без управляющих знаков');
+    }
+    _tx(() {
+      final row = _db.select('SELECT note_id FROM attachments WHERE id = ?', [id]);
+      if (row.isEmpty) return;
+      _db.execute('UPDATE attachments SET display_name = ? WHERE id = ?', [trimmed.isEmpty ? null : trimmed, id]);
+      final note = getNote(row.first['note_id'] as String);
+      if (note != null && !note.deleted) {
+        final next = note.copyWith(
+          updatedAt: _now(),
+          version: note.version.increment(deviceId),
+          lastDevice: deviceId,
+        );
+        final seq = _appendLog(note.id, 'upsert', next.version, deviceId);
+        _writeNote(next, seq);
+      }
+    });
+    _notify();
   }
 
   void removeAttachment(String id) {

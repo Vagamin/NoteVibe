@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'note_preview_text.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -293,7 +294,14 @@ class NoteCard extends StatelessWidget {
                 const SizedBox(width: 8),
               ],
               Expanded(
-                child: Text(note.displayTitle,
+                child: note.title.trim().isEmpty && noteLines(note.content, note.plainText).any((line) => line.text.trim().isNotEmpty)
+                  ? NotePreviewText(
+                      line: noteLines(note.content, note.plainText).firstWhere((line) => line.text.trim().isNotEmpty),
+                      style: (large ? t.titleMedium : t.titleSmall)?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: (large ? t.titleMedium?.fontSize : t.titleSmall?.fontSize)! * fontScale),
+                    )
+                  : Text(note.displayTitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                      style: (large ? t.titleMedium : t.titleSmall)?.copyWith(
@@ -328,7 +336,10 @@ class NoteCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                    ] else if (l.kind == 'bullet') ...[
+                     ] else if (l.kind == 'ordered') ...[
+                       Padding(padding: const EdgeInsets.only(right: 6),
+                         child: Text('${lines.take(lines.indexOf(l) + 1).where((item) => item.kind == 'ordered').length}.', style: bodyStyle)),
+                     ] else if (l.kind == 'bullet') ...[
                       Padding(
                         padding: EdgeInsets.only(top: 7 * fontScale, left: 4, right: 8),
                         child: Container(
@@ -339,12 +350,7 @@ class NoteCard extends StatelessWidget {
                       ),
                     ],
                     Expanded(
-                      child: Text(l.text,
-                          maxLines: previewLines.lines < 0 ? null : 1,
-                          overflow: previewLines.lines < 0 ? TextOverflow.clip : TextOverflow.ellipsis,
-                          style: l.kind == 'checked'
-                              ? bodyStyle?.copyWith(decoration: TextDecoration.lineThrough, color: s.outline)
-                              : bodyStyle),
+                       child: NotePreviewText(line: l, style: bodyStyle, unlimited: previewLines.lines < 0),
                     ),
                   ]),
                 ),

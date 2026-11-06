@@ -1,0 +1,260 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../data/note_store.dart';
+import '../../sync/crypto/secure_channel.dart';
+import '../../sync/transfer/note_transfer.dart';
+import '../../sync/transfer/transfer_session.dart';
+import '../providers.dart';
+
+Future<void> showTransferMenu(BuildContext context, WidgetRef ref) async {
+  final action = await showDialog<String>(context: context, builder: (c) => AlertDialog(
+    title: const Text('Разовая передача'),
+    content: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text('В одной Wi-Fi или локальной сети. Без постоянного сопряжения.'),
+        const SizedBox(height: 20),
+        FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+          onPressed: () => Navigator.pop(c, 'send'), icon: const Icon(Icons.upload_outlined), label: const Text('Отправить')),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+          onPressed: () => Navigator.pop(c, 'receive'), icon: const Icon(Icons.download_outlined), label: const Text('Получить')),
+      ])),
+    actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Закрыть'))],
+  ));
+  if (!context.mounted || action == null) return;
+  if (action == 'send') {
+    ref.read(transferSelectionProvider.notifier).set(true);
+    ref.read(selectionProvider.notifier).start();
+  } else {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const TransferScreen(receive: true)));
+  }
+}
+
+class TransferScreen extends ConsumerStatefulWidget {
+  final Set<String>? selectedIds;
+  final bool receive;
+  const TransferScreen({super.key, this.selectedIds, this.receive = false});
+  @override
+  ConsumerState<TransferScreen> createState() => _TransferScreenState();
+}
+
+class _TransferScreenState extends ConsumerState<TransferScreen> {
+  final _selected = <String>{};
+  final _code = TextEditingController();
+  TransferSession? _offer;
+  SecureChannel? _channel;
+  String? _mode;
+  String? _error;
+  String? _status;
+  bool _busy = false;
+  bool _scan = false;
+  int? _completedCount;
+  NoteTransferProgress? _progress;
+
+  void _onProgress(NoteTransferProgress progress) {
+    if (mounted) setState(() { _progress = progress; });
+  }
+
+  Future<void> _showCompletion(int count, {required bool received}) async {
+    if (!mounted) return;
+    setState(() { _completedCount = count; });
+    final scheme = Theme.of(context).colorScheme;
+    await showDialog<void>(context: context, builder: (c) => AlertDialog(
+      icon: Icon(Icons.check_circle_rounded, size: 64, color: scheme.primary),
+      title: Text(received ? 'Заметки получены!' : 'Заметки переданы!'),
+      content: Text('${received ? 'Сохранено на этом устройстве' : 'Получатель подтвердил приём'}: $count.',
+        textAlign: TextAlign.center),
+      actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Готово'))],
+    ));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.receive) { _mode = 'receive'; _scan = Platform.isAndroid; }
+    if (widget.selectedIds != null) {
+      _selected.addAll(widget.selectedIds!);
+      _mode = 'send';
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _send(); });
+    }
+  }
+
+  @override
+  void dispose() {
+    _offer?.close();
+    _channel?.close();
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_busy || _selected.isEmpty) return;
+    setState(() { _busy = true; _progress = null; _completedCount = null; _error = null; _status = 'Подготовка…'; });
+    try {
+      final services = ref.read(servicesProvider);
+      final items = <RemoteNote>[];
+      for (final id in _selected) {
+        final note = services.store.getNote(id);
+        if (note == null || note.deleted || note.trashedAt != null) throw const FormatException('Одна из заметок больше недоступна');
+        items.add(RemoteNote(note, attachments: services.store.attachmentsFor(id)));
+      }
+      final addresses = <String>[];
+      for (final interface in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
+        for (final address in interface.addresses) {
+          if (!address.isLoopback) addresses.add(address.address);
+        }
+      }
+      // Only private LAN addresses are accepted by the transfer QR parser.
+      final private = addresses.where((a) => a.startsWith('10.') || a.startsWith('192.168.') ||
+        (a.startsWith('172.') && int.tryParse(a.split('.')[1]) != null && int.parse(a.split('.')[1]) >= 16 && int.parse(a.split('.')[1]) <= 31)).take(8).toList();
+      if (private.isEmpty) throw const FormatException('Подключитесь к локальной Wi-Fi сети');
+      final offer = await TransferSession.create(addresses: private);
+      if (!mounted) { await offer.close(); return; }
+      _offer = offer;
+      setState(() { _status = 'Покажите QR получателю. Действует 5 минут.'; });
+      final channel = await offer.connected;
+      if (!mounted) { await channel.close(); return; }
+      _channel = channel;
+      setState(() { _offer = null; _status = 'Ожидание подтверждения и передача…'; });
+      final accepted = await NoteTransfer.send(channel, items, services.attachments, onProgress: _onProgress);
+      if (mounted) setState(() => _status = accepted ? 'Заметки переданы' : 'Получатель отказался от приёма');
+      if (accepted) await _showCompletion(items.length, received: false);
+    } catch (e) {
+      if (mounted) setState(() { _error = '$e'; _status = null; });
+    } finally {
+      await _offer?.close();
+      _offer = null;
+      await _channel?.close();
+      _channel = null;
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _receive(String code) async {
+    if (_busy) return;
+    setState(() { _busy = true; _progress = null; _completedCount = null; _scan = false; _error = null; _status = 'Подключение…'; });
+    try {
+      final services = ref.read(servicesProvider);
+      final channel = await TransferSession.connect(code);
+      if (!mounted) { await channel.close(); return; }
+      _channel = channel;
+      final notes = await NoteTransfer.receive(channel, services.store, services.attachments,
+        onProgress: _onProgress,
+        confirm: (items, bytes) async {
+          if (!mounted) return false;
+          return await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+            title: const Text('Принять заметки?'),
+            content: SizedBox(width: 360, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${items.length} заметок · ${(bytes / 1048576).toStringAsFixed(1)} МБ вложений'),
+                const SizedBox(height: 12),
+                for (final item in items) Text('• ${item.note.displayTitle}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 12),
+                const Text('Будут созданы отдельные копии. Постоянная синхронизация не включается.'),
+              ]))),
+            actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отказаться')),
+              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Принять'))],
+          )) ?? false;
+        });
+      if (mounted) setState(() => _status = notes.isEmpty ? 'Приём отменён' : 'Получено заметок: ${notes.length}');
+      if (notes.isNotEmpty) await _showCompletion(notes.length, received: true);
+    } catch (e) {
+      if (mounted) setState(() { _error = '$e'; _status = null; });
+    } finally {
+      await _channel?.close();
+      _channel = null;
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(appBar: AppBar(title: const Text('Разовая передача')), body: ListView(
+      padding: const EdgeInsets.all(16), children: [
+        if (_completedCount != null) ...[
+          Semantics(liveRegion: true, child: Card(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            child: Padding(padding: const EdgeInsets.all(20), child: Row(children: [
+              Icon(Icons.check_circle_rounded, size: 40, color: Theme.of(context).colorScheme.onPrimaryContainer),
+              const SizedBox(width: 16),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_mode == 'receive' ? 'Заметки получены!' : 'Заметки переданы!',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onPrimaryContainer)),
+                const SizedBox(height: 4),
+                Text('Успешно: $_completedCount', style: TextStyle(color: Theme.of(context).colorScheme.onPrimaryContainer)),
+              ])),
+            ])),
+          )),
+          const SizedBox(height: 16),
+        ],
+        const Text('Оба устройства должны быть в одной Wi-Fi или локальной сети. Передача зашифрована и не добавляет устройство в постоянную синхронизацию.'),
+        const SizedBox(height: 16),
+        if (!_busy && widget.selectedIds == null) Wrap(spacing: 12, runSpacing: 12, children: [
+          FilledButton.tonalIcon(onPressed: () {
+            ref.read(transferSelectionProvider.notifier).set(true);
+            ref.read(selectionProvider.notifier).start();
+            Navigator.pop(context);
+          }, icon: const Icon(Icons.upload_outlined), label: const Text('Отправить')),
+           FilledButton.tonalIcon(onPressed: () => setState(() { _mode = 'receive'; _completedCount = null; _scan = Platform.isAndroid; _status = null; _error = null; }), icon: const Icon(Icons.download_outlined), label: const Text('Получить')),
+        ]),
+        if (_mode == 'send' && !_busy) ...[
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _send, child: const Text('Повторить передачу')),
+        ],
+        if (_offer != null) ...[
+          const SizedBox(height: 16),
+          Center(child: Container(color: Colors.white, padding: const EdgeInsets.all(12),
+            child: QrImageView(data: _offer!.qr.encode(), size: 260))),
+          TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _offer!.qr.encode())),
+            icon: const Icon(Icons.copy), label: const Text('Копировать код передачи')),
+        ],
+         if (_mode == 'receive' && !_busy && _completedCount == null) ...[
+          const SizedBox(height: 16),
+           if (_scan) ...[ClipRRect(borderRadius: BorderRadius.circular(20), clipBehavior: Clip.hardEdge,
+             child: SizedBox(height: 280, child: MobileScanner(onDetect: (capture) {
+            final raw = capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
+            if (raw != null) _receive(raw);
+           }))), const SizedBox(height: 20)],
+          TextField(controller: _code, decoration: const InputDecoration(labelText: 'Код передачи', hintText: 'Вставьте скопированную ссылку из QR')),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: () => _receive(_code.text), child: const Text('Подключиться')),
+        ],
+         if (_busy && _completedCount == null) Padding(padding: const EdgeInsets.symmetric(vertical: 16),
+           child: TransferProgressCard(progress: _progress, status: _status ?? 'Подготовка…')),
+         if (!_busy && _status != null && _completedCount == null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_status!)),
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      ],
+    ));
+  }
+}
+
+class TransferProgressCard extends StatelessWidget {
+  final NoteTransferProgress? progress;
+  final String status;
+  const TransferProgressCard({super.key, required this.progress, required this.status});
+  @override
+  Widget build(BuildContext context) {
+    final p = progress;
+    final fraction = p == null || p.totalBytes == 0 ? null : (p.completedBytes / p.totalBytes).clamp(0.0, 0.99);
+    final title = p == null ? status : p.finalizing ? 'Проверка и сохранение заметок…' : 'Передача заметок…';
+    return Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        LinearProgressIndicator(value: p?.finalizing == true ? null : fraction,
+          minHeight: 10, borderRadius: BorderRadius.circular(8)),
+        const SizedBox(height: 10),
+        if (p != null && p.totalBytes > 0)
+          Text('${((fraction ?? 0) * 100).floor()}% · ${(p.completedBytes / 1048576).toStringAsFixed(2)} / ${(p.totalBytes / 1048576).toStringAsFixed(2)} МБ',
+            style: Theme.of(context).textTheme.bodyMedium),
+        if (p != null && p.totalBytes == 0) const Text('Передача текста и подтверждение приёма'),
+      ],
+    )));
+  }
+}

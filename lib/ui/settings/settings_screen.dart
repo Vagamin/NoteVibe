@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,9 +13,11 @@ import '../voice/voice_panel.dart';
 import 'update_card.dart';
 import '../widgets/settings_switch_card.dart';
 import '../cache_service.dart';
+import 'vault_password_card.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  final bool focusUpdates;
+  const SettingsScreen({super.key, this.focusUpdates = false});
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -23,6 +26,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _name;
   int? _cacheBytes;
   bool _clearingCache = false;
+  final _updatesKey = GlobalKey();
+  bool _highlightUpdates = false;
+  Timer? _highlightTimer;
+
+  Future<void> _revealUpdates() async {
+    final target = _updatesKey.currentContext;
+    if (target == null) return;
+    await Scrollable.ensureVisible(target, alignment: 0.08, duration: const Duration(milliseconds: 400));
+    if (!mounted) return;
+    setState(() => _highlightUpdates = true);
+    _highlightTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _highlightUpdates = false);
+    });
+  }
 
   Future<void> _refreshCache() async {
     try {
@@ -51,12 +68,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.focusUpdates) WidgetsBinding.instance.addPostFrameCallback((_) => _revealUpdates());
     _name = TextEditingController(text: ref.read(syncProvider).identity.name);
     _refreshCache();
   }
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
     _name.dispose();
     super.dispose();
   }
@@ -94,9 +113,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             subtitleTextStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ),
-        child: ListView(
+        child: SingleChildScrollView(child: Padding(
         padding: const EdgeInsets.all(16),
-        children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _SettingsTile(
             margin: EdgeInsets.zero,
             leading: const Icon(Icons.palette_outlined),
@@ -185,6 +204,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             value: ref.watch(manualOrderProvider),
             onChanged: (v) => ref.read(manualOrderProvider.notifier).set(v),
           ),
+          _SettingsSwitch(
+            icon: Icons.keyboard_double_arrow_up,
+            title: const Text('Держать ввод видимым'),
+            subtitle: const Text('Прокручивать заметку вслед за курсором.\nМесто ввода остаётся над клавиатурой.'),
+            value: ref.watch(storeProvider).getSetting('keep_input_visible') != 'false',
+            onChanged: (v) {
+              ref.read(storeProvider).setSetting('keep_input_visible', '$v');
+              setState(() {});
+            },
+          ),
           if (Platform.isWindows)
             _SettingsTile(
               leading: const Icon(Icons.mic_none),
@@ -261,7 +290,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Row(children: [
                   Icon(Icons.devices_outlined, size: 22, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   const SizedBox(width: 14),
-                  Text('Имя устройства', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3)),
+                  Expanded(child: Text('Имя устройства', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3))),
                 ]),
                 const SizedBox(height: 12),
                 TextField(
@@ -277,7 +306,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
+          AnimatedContainer(
+            key: _updatesKey,
+            duration: const Duration(milliseconds: 250),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            decoration: BoxDecoration(
+              color: _highlightUpdates ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
+          ),
           const SizedBox(height: 8),
             _SettingsSwitch(
               icon: Icons.update,
@@ -293,6 +331,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
+          _SettingsSwitch(
+            icon: Icons.drive_file_rename_outline,
+            title: const Text('Свои названия вложений'),
+            subtitle: const Text('Разрешить переименование внутри приложения.\nНазвания синхронизируются, исходные файлы не меняются.'),
+            value: ref.watch(storeProvider).getSetting('attachment_rename') == 'true',
+            onChanged: (v) {
+              ref.read(storeProvider).setSetting('attachment_rename', '$v');
+              setState(() {});
+            },
+          ),
           _SettingsSwitch(
             icon: Icons.download_outlined,
             title: const Text('Автозагрузка файлов'),
@@ -328,10 +376,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           Text('Хранилище', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
+          const VaultPasswordCard(),
+          const SizedBox(height: 8),
           _SettingsTile(
             leading: const Icon(Icons.cleaning_services_outlined),
             title: const Text('Временные файлы'),
-            subtitle: Text('${_cacheBytes == null ? 'Подсчёт…' : '${(_cacheBytes! / 1048576).toStringAsFixed(1)} МБ'}\nАвтоочистка раз в сутки, целевой лимит 50 МБ.\nАктивные файлы и установщики защищены.\nЗаметки и вложения не удаляются.'),
+            subtitle: Text('${_cacheBytes == null ? 'Подсчёт…' : '${(_cacheBytes! / 1048576).toStringAsFixed(1)} МБ'} · Автоочистка до 50 МБ'),
+            onTap: () => showDialog<void>(context: context, builder: (c) => AlertDialog(
+              title: const Text('Временные файлы'),
+              content: const Text('Автоочистка раз в сутки, целевой лимит 50 МБ. Активные файлы и установщики защищены. Заметки и вложения не удаляются.'),
+              actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Понятно'))],
+            )),
             trailing: IconButton(
               tooltip: 'Очистить временные файлы',
               onPressed: _clearingCache || _cacheBytes == null ? null : _clearCache,
@@ -354,14 +409,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             children: [
               TextButton.icon(
                 style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                onPressed: () => UpdateService.openUrl('https://github.com/Vagamin/NoteVibe'),
+                onPressed: () => UpdateService.openUrl('https://github.com/$updateRepo'),
                 icon: const Icon(Icons.code, size: 16),
                 label: const Text('GitHub'),
               ),
             ],
           ),
-        ],
-      ),
+        ]),
+      )),
       ),
     );
   }

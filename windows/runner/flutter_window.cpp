@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -25,6 +26,25 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  close_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "notehub/lifecycle",
+      &flutter::StandardMethodCodec::GetInstance());
+  close_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+    if (call.method_name() == "enableCloseGuard") {
+      close_guard_enabled_ = true;
+      close_pending_ = false;
+      result->Success();
+    } else if (call.method_name() == "closeReady") {
+      close_allowed_ = true;
+      result->Success();
+      PostMessage(GetHandle(), WM_CLOSE, 0, 0);
+    } else if (call.method_name() == "closeCancelled") {
+      close_pending_ = false;
+      result->Success();
+    } else {
+      result->NotImplemented();
+    }
+  });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +60,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  close_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -50,7 +71,16 @@ void FlutterWindow::OnDestroy() {
 LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
-                              LPARAM const lparam) noexcept {
+                               LPARAM const lparam) noexcept {
+  // Hold the native close until Dart has flushed editor buffers and encrypted
+  // snapshots. Do not destroy the engine while asynchronous writes are pending.
+  if (message == WM_CLOSE && close_guard_enabled_ && !close_allowed_ && close_channel_) {
+    if (!close_pending_) {
+      close_pending_ = true;
+      close_channel_->InvokeMethod("requestClose", nullptr);
+    }
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

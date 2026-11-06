@@ -1,10 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 /// Maximum attachment size accepted on this device.
-const maxAttachmentBytes = 50 * 1024 * 1024;
+const maxAttachmentBytes = 100 * 1024 * 1024;
 
 /// Keeps attachment bytes in `<data>/attachments/<sha256>`. Identical files are
 /// stored once; the name is the hash, so a damaged file is detectable.
@@ -18,10 +19,24 @@ class AttachmentStorage {
 
   bool has(String sha256) => fileFor(sha256).existsSync();
 
+  /// Storage-neutral verified read. Encrypted implementations override this
+  /// instead of exposing decrypted filesystem paths to sync or UI consumers.
+  Future<Uint8List> readVerified(String hash, {int? size}) async {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) throw const FormatException('Некорректный хеш');
+    final file = fileFor(hash);
+    final length = await file.length();
+    if (length > maxAttachmentBytes || (size != null && length != size)) {
+      throw const FormatException('Некорректный размер вложения');
+    }
+    final bytes = await file.readAsBytes();
+    if (sha256Of(bytes) != hash) throw const FormatException('Контрольная сумма вложения не совпадает');
+    return bytes;
+  }
+
   /// Saves [bytes] and returns the hash. Throws if the file is too large.
   Future<String> save(List<int> bytes) async {
     if (bytes.length > maxAttachmentBytes) {
-      throw const FormatException('Файл больше 50 МБ');
+      throw const FormatException('Файл больше 100 МБ');
     }
     final hash = sha256.convert(bytes).toString();
     final f = fileFor(hash);

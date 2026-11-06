@@ -71,7 +71,7 @@ class DevicesScreen extends ConsumerWidget {
           SettingsSwitchCard(
             icon: Icons.sync,
             title: const Text('Автосинхронизация'),
-            subtitle: const Text('В одной Wi‑Fi или локальной сети.\nБез интернета и облака.'),
+            subtitle: const Text('Телефон ↔ ПК в одной Wi‑Fi или локальной сети.\nДля передачи другим людям используйте разовую передачу.'),
             value: status.autoSync,
             onChanged: (v) => sync.autoSync = v,
           ),
@@ -438,6 +438,7 @@ class _JoinPairingScreenState extends ConsumerState<JoinPairingScreen> {
         children: [
           if (_scan) ...[
             ClipRRect(
+              clipBehavior: Clip.hardEdge,
               borderRadius: BorderRadius.circular(20),
               child: SizedBox(
                 height: 320,

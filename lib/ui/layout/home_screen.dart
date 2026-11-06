@@ -16,6 +16,10 @@ import '../trash/trash_screen.dart';
 import '../widgets/sync_status_chip.dart';
 import '../widgets/transfers_button.dart';
 import '../widgets/note_info_button.dart';
+import '../widgets/reminder_button.dart';
+import '../widgets/update_banner.dart';
+import '../transfer/transfer_screen.dart';
+import 'dart:io';
 import '../attachments/attachments_panel.dart';
 import '../../update/update_service.dart';
 import '../../app_version.dart';
@@ -46,12 +50,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
   bool _checkingUpdate = false;
   String? _notifiedVersion;
+  String? _availableUpdate;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpdate());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUpdate();
+      _openReminder();
+    });
   }
 
   @override
@@ -64,9 +72,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _openReminder();
       ref.read(syncProvider).wakeUp();
       _checkUpdate();
     }
+  }
+
+  Future<void> _openReminder() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final id = await reminderChannel.invokeMethod<String>('reminderOpenNote');
+      if (id == null || !mounted) return;
+      final note = ref.read(storeProvider).getNote(id);
+      if (note == null || note.deleted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Заметка больше недоступна')));
+        return;
+      }
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => MobileEditorPage(noteId: id)));
+    } catch (_) { /* A notification must not interrupt startup. */ }
   }
 
   Future<void> _checkUpdate() async {
@@ -82,12 +105,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       final release = await UpdateService.fetchLatest().timeout(const Duration(seconds: 20));
       if (!mounted || store.getSetting('updates_auto') == 'false' || !UpdateService.isNewer(release.version, appVersion) || _notifiedVersion == release.version) return;
       _notifiedVersion = release.version;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        duration: const Duration(seconds: 12),
-        content: Text('Доступна новая версия NoteVibe ${release.version}'),
-        action: SnackBarAction(label: 'Открыть', onPressed: () => Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const SettingsScreen()))),
-      ));
+      setState(() => _availableUpdate = release.version);
     } catch (_) {
       // A failed background check must not interrupt editing or offline use.
     } finally {
@@ -169,8 +187,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final status = ref.watch(syncStatusProvider).value ?? sync.currentStatus;
     final selected = ref.watch(selectedNoteProvider);
     final selecting = ref.watch(selectionProvider);
+    final transferSelecting = ref.watch(transferSelectionProvider);
 
     final actions = <Widget>[
+      if (wide) IconButton(
+        tooltip: 'Разовая передача',
+        icon: const Icon(Icons.qr_code_2),
+        onPressed: () => showTransferMenu(context, ref),
+      ),
       IconButton(
         tooltip: _searchVisible ? 'Закрыть поиск' : 'Поиск заметок',
         icon: Icon(_searchVisible ? Icons.close : Icons.search),
@@ -275,7 +299,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       onCreate: () => _newNote(true),
                       onCreateVoice: () => _newVoiceNote(true),
                     )
-                  : NoteEditor(
+                  : selecting != null ? const Center(child: Text('Действия с выбранными заметками — в верхней панели')) : NoteEditor(
                       key: ValueKey(selected),
                       noteId: selected,
                       onDeleted: () => ref.read(selectedNoteProvider.notifier).select(null),
@@ -288,6 +312,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyN, control: true): () => _newNote(wide),
         const SingleActivator(LogicalKeyboardKey.keyF, control: true): _openSearch,
+        if (!transferSelecting && selecting != null && selecting.isNotEmpty)
+          const SingleActivator(LogicalKeyboardKey.delete): () {
+            final focus = FocusManager.instance.primaryFocus;
+            if (focus?.context?.findAncestorWidgetOfExactType<EditableText>() == null) _bulkDelete(selecting);
+          },
       },
       child: Focus(
         autofocus: true,
@@ -305,10 +334,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   leading: IconButton(
                     tooltip: 'Отменить выбор',
                     icon: const Icon(Icons.close),
-                    onPressed: () => ref.read(selectionProvider.notifier).clear(),
+                    onPressed: () {
+                      ref.read(selectionProvider.notifier).clear();
+                      ref.read(transferSelectionProvider.notifier).set(false);
+                    },
                   ),
-                  title: Text('Выбрано: ${selecting.length}'),
+                  title: Text(transferSelecting ? 'Отправить: ${selecting.length}' : 'Выбрано: ${selecting.length}'),
                   actions: [
+                    if (transferSelecting) IconButton(
+                      tooltip: 'Отправить выбранные', icon: const Icon(Icons.send_outlined),
+                      onPressed: selecting.isEmpty || selecting.length > 100 ? null : () async {
+                        final ids = Set<String>.of(selecting);
+                        ref.read(selectionProvider.notifier).clear();
+                        ref.read(transferSelectionProvider.notifier).set(false);
+                        await Navigator.push(context, MaterialPageRoute(builder: (_) => TransferScreen(selectedIds: ids)));
+                      },
+                    ),
+                    if (!transferSelecting) ...[
                     IconButton(
                       tooltip: selecting.isEmpty ? 'Нет выбранных' : 'В архив',
                       icon: const Icon(Icons.archive_outlined),
@@ -324,12 +366,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       icon: const Icon(Icons.delete_sweep_outlined),
                       onPressed: selecting.isEmpty ? null : () => _bulkDelete(selecting),
                     ),
+                    ],
                     const SizedBox(width: 8),
                   ],
                 )
               : AppBar(
-                  key: const ValueKey('normal'),
-                   title: const Text('NoteVibe'),
+                   key: const ValueKey('normal'),
+                    title: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
+                      Flexible(child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      splashFactory: NoSplash.splashFactory,
+                      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+                      onTap: () => UpdateService.openUrl('https://github.com/$updateRepo'),
+                       child: const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('NoteVibe',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(shadows: [Shadow(color: Color(0x30000000), offset: Offset(0, 2), blurRadius: 4)]))),
+                    )),
+                   ]),
                    bottom: !_searchVisible ? null : PreferredSize(
                      preferredSize: const Size.fromHeight(60),
                      child: Padding(
@@ -344,10 +397,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 ),
             ),
           ),
-          body: body,
+           body: Column(children: [
+             if (_availableUpdate != null) UpdateBanner(version: _availableUpdate!,
+               onLater: () => setState(() => _availableUpdate = null),
+               onOpen: () => Navigator.push(context,
+                 MaterialPageRoute(builder: (_) => const SettingsScreen(focusUpdates: true)))),
+             Expanded(child: body),
+           ]),
           floatingActionButton: wide || selecting != null
               ? null
-              : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+               : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  FloatingActionButton(
+                    heroTag: 'transfer', tooltip: 'Разовая передача',
+                    onPressed: () => showTransferMenu(context, ref),
+                    child: const Icon(Icons.qr_code_2),
+                  ),
+                  const SizedBox(height: 12),
                   FloatingActionButton(
                     heroTag: 'voice',
                     tooltip: 'Голосовая заметка',
@@ -381,12 +446,12 @@ class _HomeMenuLabel extends StatelessWidget {
   ]);
 }
 
-class _EmptyEditor extends StatelessWidget {
+class _EmptyEditor extends ConsumerWidget {
   final VoidCallback onCreate;
   final VoidCallback onCreateVoice;
   const _EmptyEditor({required this.onCreate, required this.onCreateVoice});
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = Theme.of(context).colorScheme;
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -404,6 +469,10 @@ class _EmptyEditor extends StatelessWidget {
             onPressed: onCreateVoice,
             icon: const Icon(Icons.mic),
             label: const Text('Голосовая заметка'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => showTransferMenu(context, ref),
+            icon: const Icon(Icons.qr_code_2), label: const Text('Разовая передача'),
           ),
         ]),
       ]),

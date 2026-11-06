@@ -19,6 +19,7 @@ class VaultDatabase {
   VaultDatabase._(this._vfs, this.database);
 
   static VaultDatabase create() => _open(null);
+  static VaultDatabase fromBytes(Uint8List bytes) => _open(bytes);
 
   /// SQLite backup copies the WAL-mode header from the source even when the
   /// destination has no WAL. After the backup completes, reopen the standalone

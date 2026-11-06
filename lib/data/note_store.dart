@@ -347,16 +347,21 @@ class NoteStore {
   /// Imports an explicitly accepted one-time transfer as independent local copies.
   /// File bytes must be verified and stored before calling this method.
   /// Sender IDs, history, archive/trash state and pairing are never imported.
-  List<Note> importTransferredNotes(List<RemoteNote> items) {
-    if (items.isEmpty || items.length > 100) {
+  List<Note> importTransferredNotes(List<RemoteNote> items, {bool backup = false, bool replace = false}) {
+    if ((!backup && items.isEmpty) || items.length > (backup ? 10000 : 100)) {
       throw const FormatException('Передавайте от 1 до 100 заметок за раз');
     }
     final result = _tx(() {
+      if (replace) {
+        for (final row in _db.select('SELECT id FROM notes WHERE deleted = 0')) {
+          _deleteOne(row['id'] as String);
+        }
+      }
       final notes = <Note>[];
       var position = _db.select('SELECT COALESCE(MIN(position), 0) FROM notes WHERE deleted = 0').first.values.first as int;
       for (final item in items) {
         final source = item.note;
-        if (source.deleted || source.trashedAt != null || !const ['text', 'voice'].contains(source.kind) ||
+        if (source.deleted || (!backup && source.trashedAt != null) || !const ['text', 'voice'].contains(source.kind) ||
             source.content.length > 4 * 1024 * 1024 || source.title.length > 10000 || item.attachments.length > 100) {
           throw const FormatException('Некорректная передаваемая заметка');
         }
@@ -371,7 +376,9 @@ class NoteStore {
         final note = Note(id: _uuid.v4(), title: source.title, content: source.content,
           plainText: plain, createdAt: now, updatedAt: now,
           version: VersionVector.empty.increment(deviceId), lastDevice: deviceId,
-          kind: source.kind, position: --position);
+          kind: source.kind, position: --position,
+          important: backup && source.important, archived: backup && source.archived,
+          trashedAt: backup ? source.trashedAt : null);
         final seq = _appendLog(note.id, 'upsert', note.version, deviceId);
         _writeNote(note, seq, dismissed: const []);
         for (final a in item.attachments) {
@@ -391,6 +398,13 @@ class NoteStore {
     _notify();
     return result;
   }
+
+  List<RemoteNote> backupNotes() => [
+    for (final row in _db.select('SELECT id FROM notes WHERE deleted = 0 ORDER BY position'))
+      RemoteNote(getNote(row['id'] as String)!, attachments: attachmentsFor(row['id'] as String)),
+  ];
+
+  Future<void> copyDatabase(Database destination) => _db.backup(destination).drain<void>();
 
   /// Saves a local edit. Returns the updated note, or null if nothing changed.
   Note? updateNote(String id, {String? title, String? content, String? plainText}) {

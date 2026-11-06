@@ -13,6 +13,7 @@ import '../voice/voice_panel.dart';
 import 'update_card.dart';
 import '../widgets/settings_switch_card.dart';
 import '../widgets/preferences_style.dart';
+import 'backup_card.dart';
 import '../cache_service.dart';
 import 'vault_password_card.dart';
 
@@ -367,6 +368,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text('Хранилище', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           const VaultPasswordCard(),
+          const SizedBox(height: 8),
+          const BackupCard(),
           const SizedBox(height: 8),
           _SettingsTile(
             leading: const Icon(Icons.cleaning_services_outlined),

@@ -35,24 +35,6 @@ class _VaultPasswordCardState extends ConsumerState<VaultPasswordCard> {
     return password;
   }
 
-  Future<void> _backup() async {
-    final services = ref.read(servicesProvider);
-    final password = await _passwordPrompt('Экспорт базы без шифрования');
-    if (password == null || !mounted) return;
-    try {
-      await services.vault!.verifyPassword(password);
-      await services.flush();
-      final bytes = services.vault!.notes.database.exportBytes();
-      try {
-        final path = await FilePicker.saveFile(fileName: 'NoteVibe-backup-${DateTime.now().millisecondsSinceEpoch}.db',
-          bytes: bytes, mimeType: 'application/octet-stream', dialogTitle: 'Сохранить расшифрованную базу');
-        if (path != null && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('База сохранена без шифрования. Вложения хранятся отдельно и в этот файл не входят.')));
-      } finally { bytes.fillRange(0, bytes.length, 0); }
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Экспорт не выполнен. Проверьте пароль и доступ к файлу.')));
-    }
-  }
-
   Future<void> _biometrics() async {
     try {
       if (await VaultBiometrics.enabled()) {
@@ -89,10 +71,6 @@ class _VaultPasswordCardState extends ConsumerState<VaultPasswordCard> {
         icon: const Icon(Icons.password), label: const Text('Изменить пароль')),
       if (vault != null && Platform.isAndroid) TextButton.icon(onPressed: _biometrics,
         icon: const Icon(Icons.fingerprint), label: const Text('Настроить вход по отпечатку')),
-      if (vault != null) TextButton.icon(onPressed: _backup,
-        icon: const Icon(Icons.backup_outlined), label: const Text('Экспорт расшифрованной базы')),
-      if (vault != null) const Padding(padding: EdgeInsets.only(top: 4),
-        child: Text('Копия базы не защищена паролем. Файлы вложений в неё не входят.')),
       const SizedBox(height: 8),
       const Text('При переключении данные переносятся и проверяются, затем интерфейс перезапускается.'),
       const SizedBox(height: 8),

@@ -19,7 +19,7 @@ class _BackupCardState extends ConsumerState<BackupCard> {
 
   Future<bool> _authorize() async {
     final vault = ref.read(servicesProvider).vault;
-    if (vault == null) return true;
+    if (vault == null) return false;
     final controller = TextEditingController();
     final password = await showDialog<String>(context: context, builder: (c) => AlertDialog(
       title: const Text('Подтвердите пароль'),
@@ -36,7 +36,7 @@ class _BackupCardState extends ConsumerState<BackupCard> {
   }
 
   Future<void> _run(bool importing) async {
-    if (_busy) return;
+    if (_busy || ref.read(servicesProvider).vault == null) return;
     setState(() => _busy = true);
     final services = ref.read(servicesProvider);
     Uint8List? bytes;
@@ -88,16 +88,21 @@ class _BackupCardState extends ConsumerState<BackupCard> {
   }
 
   @override
-  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(16),
+  Widget build(BuildContext context) {
+    final protected = ref.watch(servicesProvider).vault != null;
+    return Card(child: Padding(padding: const EdgeInsets.all(16),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.backup_outlined),
         title: const Text('Резервные копии'), subtitle: const Text('ZIP: база и доступные на устройстве вложения.')),
       const Text('Архив не зашифрован. Храните его в безопасном месте. Отсутствующие на устройстве файлы в копию не входят. Импорт поддерживает ZIP NoteVibe и прежние файлы .db.'),
       const SizedBox(height: 8),
+      if (!protected) const Padding(padding: EdgeInsets.only(bottom: 8),
+        child: Text('Для импорта и экспорта включите защиту данных паролем.')),
       Wrap(spacing: 8, runSpacing: 4, children: [
-        TextButton.icon(onPressed: _busy ? null : () => _run(false), icon: const Icon(Icons.save_alt), label: const Text('Сохранить ZIP', maxLines: 1, overflow: TextOverflow.ellipsis)),
-        TextButton.icon(onPressed: _busy ? null : () => _run(true), icon: const Icon(Icons.restore), label: const Text('Импортировать', maxLines: 1, overflow: TextOverflow.ellipsis)),
+        TextButton.icon(onPressed: _busy || !protected ? null : () => _run(false), icon: const Icon(Icons.save_alt), label: const Text('Сохранить ZIP', maxLines: 1, overflow: TextOverflow.ellipsis)),
+        TextButton.icon(onPressed: _busy || !protected ? null : () => _run(true), icon: const Icon(Icons.restore), label: const Text('Импортировать', maxLines: 1, overflow: TextOverflow.ellipsis)),
       ]),
       if (_busy) const LinearProgressIndicator(),
     ])));
+  }
 }

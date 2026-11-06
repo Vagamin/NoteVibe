@@ -12,6 +12,7 @@ Future<TemporaryCache> temporaryCache() async {
     Directory(p.join(tmp.path, 'updates')),
     Directory(p.join(tmp.path, 'notevibe_play')),
     Directory(p.join(tmp.path, 'notevibe_gallery')),
+    Directory(p.join(tmp.path, 'notevibe_clipboard')),
     Directory(p.join(Directory.systemTemp.path, 'notevibe_open')),
   ], installedVersion: appVersion);
 }

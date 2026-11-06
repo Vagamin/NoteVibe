@@ -21,7 +21,7 @@ class _VaultSaveStatusState extends ConsumerState<VaultSaveStatus> {
     return StreamBuilder<void>(stream: notes.persistenceChanges, builder: (context, _) {
       if (notes.lastSaveError == null) return const SizedBox.shrink();
       final scheme = Theme.of(context).colorScheme;
-      return Material(color: scheme.errorContainer, child: Padding(
+      return SafeArea(bottom: false, child: Material(color: scheme.errorContainer, child: Padding(
         padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Изменения ещё не сохранены на диск. Не закрывайте приложение. Проверьте свободное место и доступ к папке хранилища.',
             style: TextStyle(color: scheme.onErrorContainer)),
@@ -32,7 +32,7 @@ class _VaultSaveStatusState extends ConsumerState<VaultSaveStatus> {
               finally { if (mounted) setState(() => _retrying = false); }
             }, child: Text(_retrying ? 'Сохранение…' : 'Повторить сохранение'))),
         ]),
-      ));
+      )));
     });
   }
 }

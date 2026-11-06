@@ -48,6 +48,21 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
 
+  testWidgets('hidden vault warning does not add a second status-bar inset', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    tester.view.physicalSize = const Size(412, 915);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = FakeViewPadding(top: 32);
+    tester.view.viewPadding = FakeViewPadding(top: 32);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ProviderScope(overrides: [servicesProvider.overrideWithValue(s)], child: const NoteVibeApp()));
+    await tester.pumpAndSettle();
+    final appBar = find.byType(AppBar).first;
+    expect(tester.getTopLeft(appBar).dy, 0);
+    expect(tester.getSize(appBar).height, 88);
+  });
+
   testWidgets('font setting scales editor paragraphs, lists and headings', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());

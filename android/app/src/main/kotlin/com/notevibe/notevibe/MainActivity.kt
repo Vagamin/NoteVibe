@@ -84,6 +84,18 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "notevibe/update")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "attachmentClipboard" -> {
+                        try {
+                            val file = java.io.File(call.argument<String>("path") ?: "").canonicalFile
+                            val root = java.io.File(cacheDir, "notevibe_clipboard").canonicalFile
+                            require(file.parentFile == root && file.isFile) { "Недопустимый файл буфера обмена" }
+                            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.updates", file)
+                            val clip = android.content.ClipData.newUri(contentResolver,
+                                call.argument<String>("name") ?: "Вложение", uri)
+                            (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip)
+                            result.success(null)
+                        } catch (e: Exception) { result.error("clipboard", e.message, null) }
+                    }
                     "reminderPermission" -> {
                         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                             if (notificationResult != null) result.error("busy", "Запрос разрешения уже открыт", null)

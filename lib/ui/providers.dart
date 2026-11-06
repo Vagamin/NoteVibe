@@ -104,7 +104,7 @@ class AppServices {
     if (Platform.isWindows && await VaultTransition.pending(dir) != null) {
       final tmp = await getTemporaryDirectory();
       await VaultTransition.recover(dir, deviceId: deviceId, password: vaultPassword, keys: keyStore,
-        caches: [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')),
+        caches: [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')), Directory(p.join(tmp.path, 'notevibe_clipboard')),
           Directory(p.join(Directory.systemTemp.path, 'notevibe_open'))]);
     }
     final encrypted = Platform.isWindows && await VaultMode.encrypted(dir);

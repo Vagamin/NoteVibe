@@ -157,6 +157,7 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
             onDownload: () => _download(context, svc, a),
             onFreeSpace: () => _run(context, () => svc.freeSpace(a)),
             onSave: () => _saveCopy(context, svc, a),
+            onCopy: () => _copyToClipboard(context, svc, a),
             onLocation: () => _run(context, () => svc.openLocation(a)),
             onDelete: () => _confirmRemove(context, svc, a),
             onTapSelect: selecting ? () => _toggle(a.id) : null,
@@ -244,6 +245,25 @@ class _AttachmentsPanelState extends ConsumerState<AttachmentsPanel> {
     }
   }
 
+  Future<void> _copyToClipboard(BuildContext context, AttachmentService svc, Attachment a) async {
+    if (ref.read(servicesProvider).vault != null) {
+      final allowed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+        title: const Text('Копировать без шифрования?'),
+        content: const Text('Другие приложения получат доступ к файлу через буфер обмена. Открытая временная копия останется до очистки кэша.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Копировать'))],
+      ));
+      if (allowed != true || !context.mounted) return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await svc.copyToClipboard(a);
+      messenger.showSnackBar(const SnackBar(content: Text('Файл скопирован в буфер обмена')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Не удалось скопировать файл: $e')));
+    }
+  }
+
   Future<void> _confirmRemove(BuildContext context, AttachmentService svc, Attachment a) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -294,6 +314,7 @@ class _AttachmentTile extends StatelessWidget {
   final VoidCallback onDownload;
   final VoidCallback onFreeSpace;
   final VoidCallback onSave;
+  final VoidCallback onCopy;
   final VoidCallback onLocation;
   final VoidCallback onDelete;
 
@@ -311,6 +332,7 @@ class _AttachmentTile extends StatelessWidget {
     required this.onDownload,
     required this.onFreeSpace,
     required this.onSave,
+    required this.onCopy,
     required this.onLocation,
     required this.onDelete,
   });
@@ -413,6 +435,8 @@ class _AttachmentTile extends StatelessWidget {
                   onOpen();
                 case 'save':
                   onSave();
+                case 'copy':
+                  onCopy();
                 case 'location':
                   onLocation();
                 case 'free':
@@ -425,6 +449,7 @@ class _AttachmentTile extends StatelessWidget {
               if (onRename != null) const PopupMenuItem(value: 'rename', child: Text('Изменить название')),
               if (present) const PopupMenuItem(value: 'open', child: Text('Открыть файл')),
               if (present) const PopupMenuItem(value: 'save', child: Text('Сохранить копию')),
+              if (present) const PopupMenuItem(value: 'copy', child: Text('Копировать в буфер обмена')),
               if (isDesktop && hasSavedCopy)
                 const PopupMenuItem(value: 'location', child: Text('Показать в папке')),
               if (present && remoteHeld) const PopupMenuItem(value: 'free', child: Text('Освободить место')),

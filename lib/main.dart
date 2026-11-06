@@ -108,7 +108,7 @@ class _NoteVibeAppState extends ConsumerState<NoteVibeApp> {
       ],
       home: const HomeScreen(),
       builder: (context, child) => Column(children: [
-        const SafeArea(bottom: false, child: VaultSaveStatus()),
+        const VaultSaveStatus(),
         Expanded(child: child ?? const SizedBox.shrink()),
       ]),
     );

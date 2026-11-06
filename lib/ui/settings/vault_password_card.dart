@@ -76,7 +76,7 @@ class _ToggleVaultDialogState extends State<_ToggleVaultDialog> {
         _stopped = true;
       }
       final tmp = await getTemporaryDirectory();
-      final caches = [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')),
+      final caches = [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')), Directory(p.join(tmp.path, 'notevibe_clipboard')),
         Directory(p.join(Directory.systemTemp.path, 'notevibe_open'))];
       final deviceId = (await File(p.join(root.path, 'device_id')).readAsString()).trim();
       if (await VaultTransition.pending(root) != null) {

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
@@ -117,6 +118,29 @@ class AttachmentService {
     );
     if (target != null) store.setSavedCopy(a.sha256, target.toFilePath());
     return target?.toFilePath();
+  }
+
+  /// Explicit plaintext export for cross-application clipboard interoperability.
+  Future<void> copyToClipboard(Attachment a) async {
+    final bytes = await _verifiedBytes(a);
+    final temp = await getTemporaryDirectory();
+    final name = p.basename(a.name.replaceAll('\\', '/'));
+    final directory = await Directory(p.join(temp.path, 'notevibe_clipboard')).create(recursive: true);
+    final target = File(p.join(directory.path, '${a.sha256}-${name.isEmpty ? 'attachment' : name}'));
+    await target.writeAsBytes(bytes, flush: true);
+    if (Platform.isAndroid) {
+      await const MethodChannel('notevibe/update').invokeMethod<void>('attachmentClipboard', {
+        'path': target.path, 'name': a.label, 'mime': a.mime,
+      });
+    } else if (Platform.isWindows) {
+      final escaped = target.path.replaceAll("'", "''");
+      final script = "Add-Type -AssemblyName System.Windows.Forms; \$files=New-Object System.Collections.Specialized.StringCollection; [void]\$files.Add('$escaped'); [System.Windows.Forms.Clipboard]::SetFileDropList(\$files)";
+      final encoded = base64Encode([for (final unit in script.codeUnits) ...[unit & 255, unit >> 8]]);
+      final result = await Process.run('powershell.exe', ['-NoProfile', '-STA', '-EncodedCommand', encoded]);
+      if (result.exitCode != 0) throw const FileSystemException('Не удалось скопировать файл в буфер обмена');
+    } else {
+      throw UnsupportedError('Копирование файлов поддерживается на Android и Windows');
+    }
   }
 
   /// Saves the chosen recordings as files into a folder the user picks.

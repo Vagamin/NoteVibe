@@ -320,7 +320,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsSwitch(
               icon: Icons.update,
               title: const Text('Проверять обновления'),
-              subtitle: const Text('Проверка при открытии приложения.\nНе чаще одного раза в 6 часов.'),
+              subtitle: const Text('Проверка при запуске и возвращении в приложение.\nНе чаще одного раза в 5 минут.'),
              value: ref.watch(storeProvider).getSetting('updates_auto') != 'false',
              onChanged: (value) {
                ref.read(storeProvider).setSetting('updates_auto', '$value');

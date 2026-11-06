@@ -14,17 +14,33 @@ class TrashScreen extends ConsumerStatefulWidget {
 }
 
 class _TrashScreenState extends ConsumerState<TrashScreen> {
+  bool _searchVisible = false;
+  final _searchFocus = FocusNode();
+  late NoteSelection _selection;
+  @override
+  void initState() { super.initState(); _selection = ref.read(selectionProvider.notifier); }
+  void _toggleSearch() {
+    setState(() => _searchVisible = !_searchVisible);
+    if (_searchVisible) {
+      _searchFocus.requestFocus();
+    } else {
+      _searchFocus.unfocus();
+      ref.read(searchQueryProvider.notifier).set('');
+    }
+  }
   @override
   void dispose() {
-    ref.read(selectionProvider.notifier).clear();
+    _selection.clear();
+    _searchFocus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final selecting = ref.watch(selectionProvider);
+    ref.watch(storeChangesProvider);
     final period = ref.watch(trashPeriodProvider);
-    final count = ref.watch(trashedNotesProvider).length;
+    final count = ref.watch(storeProvider).listTrashed().length;
     return Scaffold(
       appBar: selecting != null
           ? AppBar(
@@ -54,8 +70,10 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
               ],
             )
           : AppBar(
-              title: const Text('Корзина'),
+              title: _searchVisible ? SearchField(focusNode: _searchFocus) : const Text('Корзина'),
               actions: [
+                IconButton(tooltip: _searchVisible ? 'Закрыть поиск' : 'Поиск',
+                  icon: Icon(_searchVisible ? Icons.close : Icons.search), onPressed: _toggleSearch),
                 if (count > 0)
                   IconButton(
                     tooltip: 'Выбрать заметки',
@@ -66,7 +84,7 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
                   IconButton(
                     tooltip: 'Очистить корзину',
                     icon: const Icon(Icons.delete_sweep_outlined),
-                    onPressed: () => _deleteForever(ref.read(trashedNotesProvider).map((n) => n.id).toSet()),
+                    onPressed: () => _deleteForever(ref.read(storeProvider).listTrashed().map((n) => n.id).toSet()),
                   ),
                 const SizedBox(width: 8),
               ],

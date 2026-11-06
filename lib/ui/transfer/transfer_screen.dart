@@ -240,8 +240,8 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
           )),
           const SizedBox(height: 16),
         ],
-        const Text('Оба устройства должны быть в одной Wi-Fi или локальной сети. Передача зашифрована и не добавляет устройство в постоянную синхронизацию.'),
-        const SizedBox(height: 16),
+         if (_offer == null) const Text('Оба устройства должны быть в одной Wi-Fi или локальной сети. Передача зашифрована и не добавляет устройство в постоянную синхронизацию.'),
+         if (_offer == null) const SizedBox(height: 16),
         if (!_busy && widget.selectedIds == null) Wrap(spacing: 12, runSpacing: 12, children: [
           FilledButton.tonalIcon(onPressed: () {
             ref.read(transferSelectionProvider.notifier).set(true);
@@ -255,20 +255,19 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
           FilledButton(onPressed: _send, child: const Text('Повторить передачу')),
         ],
          if (_offer != null) ...[
-           const SizedBox(height: 16),
-           Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(children: [
+           Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
              const Text('Код для получателя'),
              const SizedBox(height: 8),
              SelectableText('${_offer!.code.substring(0, 3)} ${_offer!.code.substring(3)}',
                style: Theme.of(context).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 4)),
              const SizedBox(height: 8),
-             const Text('На другом устройстве: «Получить» → выберите отправителя → введите 6 цифр.\nКод действует 5 минут. После трёх неверных попыток создайте передачу заново.', textAlign: TextAlign.center),
+             const Text('«Получить» → отправитель → 6 цифр.\n5 минут · до 3 неверных попыток', textAlign: TextAlign.center),
            ]))),
-           const SizedBox(height: 16),
-          Center(child: Container(color: Colors.white, padding: const EdgeInsets.all(12),
-            child: QrImageView(data: _offer!.qr.encode(), size: 260))),
+           const SizedBox(height: 12),
+           Center(child: Container(color: Colors.white, padding: const EdgeInsets.all(12),
+             child: QrImageView(data: _offer!.qr.encode(), size: (MediaQuery.sizeOf(context).height * 0.29).clamp(160.0, 240.0)))),
           TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _offer!.qr.encode())),
-            icon: const Icon(Icons.copy), label: const Text('Копировать код передачи')),
+             icon: const Icon(Icons.copy), label: const Text('Копировать ссылку')),
         ],
          if (_mode == 'receive' && !_busy && _completedCount == null) ...[
            const SizedBox(height: 16),
@@ -304,7 +303,7 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
           const SizedBox(height: 12),
            if (_manualLink) FilledButton(onPressed: () => _receive(_code.text), child: const Text('Подключиться')),
         ],
-         if (_busy && _completedCount == null) Padding(padding: const EdgeInsets.symmetric(vertical: 16),
+         if (_busy && _offer == null && _completedCount == null) Padding(padding: const EdgeInsets.symmetric(vertical: 16),
            child: TransferProgressCard(progress: _progress, status: _status ?? 'Подготовка…')),
          if (!_busy && _status != null && _completedCount == null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_status!)),
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),

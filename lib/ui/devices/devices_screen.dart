@@ -14,6 +14,7 @@ import '../../sync/sync_service.dart';
 import '../providers.dart';
 import '../widgets/sync_status_chip.dart';
 import '../widgets/settings_switch_card.dart';
+import '../widgets/preferences_style.dart';
 
 bool get cameraSupported => Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
 
@@ -33,16 +34,7 @@ class DevicesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Устройства')),
-      body: Theme(
-        data: Theme.of(context).copyWith(
-          listTileTheme: Theme.of(context).listTileTheme.copyWith(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            minLeadingWidth: 24,
-            horizontalTitleGap: 12,
-            titleTextStyle: t.bodyLarge?.copyWith(fontWeight: FontWeight.w600, height: 1.3),
-            subtitleTextStyle: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4),
-          ),
-        ),
+      body: PreferencesStyle(
         child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -85,7 +77,7 @@ class DevicesScreen extends ConsumerWidget {
                 Text(sync.identity.name, style: t.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 Text('Ключ: ${sync.identity.fingerprint}\nВерсия: $appVersion',
-                  style: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4)),
+                  style: t.bodyMedium?.copyWith(fontSize: 14, color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35)),
               ]),
             ),
           ),

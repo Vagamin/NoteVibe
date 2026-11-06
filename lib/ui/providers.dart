@@ -360,6 +360,8 @@ enum PreviewLines {
   one(1, '1 строка'),
   two(2, '2 строки'),
   three(3, '3 строки'),
+  four(4, '4 строки'),
+  five(5, '5 строк'),
   full(-1, 'Вся заметка');
 
   /// Lines of body text to show under the title. 0 hides the body, -1 shows all.

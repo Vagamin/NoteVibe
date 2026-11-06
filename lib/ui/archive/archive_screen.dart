@@ -14,9 +14,24 @@ class ArchiveScreen extends ConsumerStatefulWidget {
 }
 
 class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
+  bool _searchVisible = false;
+  final _searchFocus = FocusNode();
+  late NoteSelection _selection;
+  @override
+  void initState() { super.initState(); _selection = ref.read(selectionProvider.notifier); }
+  void _toggleSearch() {
+    setState(() => _searchVisible = !_searchVisible);
+    if (_searchVisible) {
+      _searchFocus.requestFocus();
+    } else {
+      _searchFocus.unfocus();
+      ref.read(searchQueryProvider.notifier).set('');
+    }
+  }
   @override
   void dispose() {
-    ref.read(selectionProvider.notifier).clear();
+    _selection.clear();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -56,8 +71,10 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
               ],
             )
           : AppBar(
-              title: const Text('Архив'),
+              title: _searchVisible ? SearchField(focusNode: _searchFocus) : const Text('Архив'),
               actions: [
+                IconButton(tooltip: _searchVisible ? 'Закрыть поиск' : 'Поиск',
+                  icon: Icon(_searchVisible ? Icons.close : Icons.search), onPressed: _toggleSearch),
                 IconButton(
                   tooltip: 'Выбрать заметки',
                   icon: const Icon(Icons.checklist),
@@ -67,10 +84,6 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
               ],
             ),
       body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: const SearchField(),
-        ),
         Expanded(child: NotesList(archived: true, large: true, onOpen: _open)),
       ]),
     );

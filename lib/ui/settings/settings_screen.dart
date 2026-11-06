@@ -12,6 +12,7 @@ import '../providers.dart';
 import '../voice/voice_panel.dart';
 import 'update_card.dart';
 import '../widgets/settings_switch_card.dart';
+import '../widgets/preferences_style.dart';
 import '../cache_service.dart';
 import 'vault_password_card.dart';
 
@@ -101,18 +102,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final status = ref.watch(syncStatusProvider).value ?? sync.currentStatus;
     return Scaffold(
       appBar: AppBar(title: const Text('Настройки')),
-      body: Theme(
-        data: Theme.of(context).copyWith(
-          listTileTheme: Theme.of(context).listTileTheme.copyWith(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            minVerticalPadding: 8,
-            tileColor: Theme.of(context).cardTheme.color,
-            minLeadingWidth: 24,
-            horizontalTitleGap: 12,
-            titleTextStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.3),
-            subtitleTextStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-        ),
+      body: PreferencesStyle(
         child: SingleChildScrollView(child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -301,7 +291,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
                 const SizedBox(height: 12),
                 Text('Порт: ${sync.port}\nОтпечаток ключа: ${sync.identity.fingerprint}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.35, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ]),
             ),
           ),
@@ -416,8 +406,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
           ),
         ]),
-      )),
       ),
+      )),
     );
   }
 }

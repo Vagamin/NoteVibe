@@ -91,9 +91,12 @@ class _VaultPasswordCardState extends ConsumerState<VaultPasswordCard> {
         icon: const Icon(Icons.fingerprint), label: const Text('Настроить вход по отпечатку')),
       if (vault != null) TextButton.icon(onPressed: _backup,
         icon: const Icon(Icons.backup_outlined), label: const Text('Экспорт расшифрованной базы')),
-      if (vault != null) const Text('Экспорт содержит все записи базы, но не отдельные файлы вложений. Копия не защищена паролем.'),
+      if (vault != null) const Padding(padding: EdgeInsets.only(top: 4),
+        child: Text('Копия базы не защищена паролем. Файлы вложений в неё не входят.')),
       const SizedBox(height: 8),
-      Text('Переключение переносит и проверяет данные, затем перезапускает интерфейс. Экспортированные вами файлы вне приложения не шифруются. Удаление старых файлов не гарантирует их физического стирания с SSD или из системных резервных копий.', style: Theme.of(context).textTheme.bodySmall),
+      const Text('При переключении данные переносятся и проверяются, затем интерфейс перезапускается.'),
+      const SizedBox(height: 8),
+      const Text('Внешние экспорты не шифруются. Удаление исходных файлов не гарантирует их физического стирания с накопителя или из системных резервных копий.'),
     ])));
   }
 }

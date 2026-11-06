@@ -86,9 +86,12 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
     }
   }
 
+  Future<void> _pauseForLock() => _player.pause();
+
   @override
   void initState() {
     super.initState();
+    ref.read(servicesProvider).lockHandlers.add(_pauseForLock);
     _subs.add(widget.svc.sync.transferEvents.listen((_) {
       if (!mounted) return;
       setState(() {});
@@ -137,6 +140,7 @@ class _VoicePlayerState extends ConsumerState<VoicePlayer> with SingleTickerProv
 
   @override
   void dispose() {
+    ref.read(servicesProvider).lockHandlers.remove(_pauseForLock);
     for (final s in _subs) {
       s.cancel();
     }

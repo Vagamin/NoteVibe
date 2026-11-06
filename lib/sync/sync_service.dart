@@ -109,6 +109,18 @@ class SyncService {
   final _statusCtl = StreamController<SyncStatus>.broadcast();
   final _discoveredCtl = StreamController<List<DiscoveredDevice>>.broadcast();
   bool _started = false;
+  final _openChannels = <SocketFrameChannel>{};
+  bool _suspended = false;
+
+  Future<SocketFrameChannel> _connect(String host, int port,
+      {Duration timeout = const Duration(seconds: 5)}) async {
+    if (_suspended) throw StateError('Сеть заблокирована');
+    final channel = await SocketFrameChannel.connect(host, port, timeout: timeout);
+    if (_suspended) { await channel.close(); throw StateError('Сеть заблокирована'); }
+    _openChannels.add(channel);
+    channel.onClosed = () => _openChannels.remove(channel);
+    return channel;
+  }
   int _suppressDirty = 0;
 
   SyncService({
@@ -150,6 +162,7 @@ class SyncService {
 
   Future<void> start({int? port}) async {
     if (_started) return;
+    _suspended = false;
     _started = true;
     _server = await _bind(port);
     _server!.listen(_onIncoming, onError: (_) {});
@@ -196,7 +209,10 @@ class SyncService {
   }
 
   Future<void> stop() async {
+    _suspended = true;
     _started = false;
+    for (final channel in _openChannels.toList()) { await channel.abort(); }
+    _openChannels.clear();
     _debounceTimer?.cancel();
     _periodicTimer?.cancel();
     await _storeSub?.cancel();
@@ -355,7 +371,7 @@ class SyncService {
   Future<void> _syncWith(Peer p, String host, int port) async {
     final key = await peerKeys.get(p.deviceId);
     if (key == null) throw PairingException('Ключ устройства не найден, выполните сопряжение заново');
-    final ch = await SocketFrameChannel.connect(host, port);
+    final ch = await _connect(host, port);
     final sc = await initiateHandshake(ch, identity,
         mode: HandshakeMode.sync, expectedId: p.deviceId, expectedKey: key);
     store.updatePeerSeen(p.deviceId, address: host, port: port);
@@ -409,7 +425,7 @@ class SyncService {
       if (key == null) continue;
       try {
         _transfer(a, 0, 'Загрузка');
-        final ch = await SocketFrameChannel.connect(addr.$1, addr.$2);
+        final ch = await _connect(addr.$1, addr.$2);
         final sc = await initiateHandshake(ch, identity,
             mode: HandshakeMode.fetch, expectedId: p.deviceId, expectedKey: key);
         try {
@@ -446,7 +462,10 @@ class SyncService {
   // ------------------------------------------------------------ incoming
 
   Future<void> _onIncoming(Socket socket) async {
+    if (_suspended) { socket.destroy(); return; }
     final ch = SocketFrameChannel(socket);
+    _openChannels.add(ch);
+    ch.onClosed = () => _openChannels.remove(ch);
     final policy = _Policy(this);
     SecureChannel sc;
     try {
@@ -522,7 +541,7 @@ class SyncService {
     Object? lastErr;
     for (final host in qr.addresses) {
       try {
-        final ch = await SocketFrameChannel.connect(host, qr.port, timeout: const Duration(seconds: 3));
+        final ch = await _connect(host, qr.port, timeout: const Duration(seconds: 3));
         final sc = await initiateHandshake(ch, identity,
             mode: HandshakeMode.pairQr,
             expectedId: qr.deviceId,
@@ -541,7 +560,7 @@ class SyncService {
 
   Future<String> pairWithCode(String host, int port, String code) async {
     try {
-      final ch = await SocketFrameChannel.connect(host, port);
+      final ch = await _connect(host, port);
       final sc = await initiateHandshake(ch, identity,
           mode: HandshakeMode.pairCode, secret: code.trim().codeUnits, kdf: kdf);
       await _finishPairing(sc, host);

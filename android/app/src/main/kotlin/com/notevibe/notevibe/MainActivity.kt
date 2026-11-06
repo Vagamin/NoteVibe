@@ -17,9 +17,17 @@ import java.io.File
  * MulticastLock is held. The lock is needed for LAN discovery.
  */
 class MainActivity : FlutterActivity() {
+    private val vaultBiometrics by lazy { VaultBiometrics(this) }
     private var lock: WifiManager.MulticastLock? = null
     private var galleryResult: MethodChannel.Result? = null
     private var notificationResult: MethodChannel.Result? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        if (getSharedPreferences("vault_privacy", Context.MODE_PRIVATE).getBoolean("enabled", false)) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        super.onCreate(savedInstanceState)
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -84,6 +92,26 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "notevibe/update")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "vaultSecureScreen" -> {
+                        val enabled = call.argument<Boolean>("enabled") == true
+                        getSharedPreferences("vault_privacy", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).commit()
+                        if (enabled) {
+                            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            val reminders = getSharedPreferences("note_reminders", Context.MODE_PRIVATE)
+                            val editor = reminders.edit()
+                            for ((id, raw) in reminders.all) {
+                                try {
+                                    val item = org.json.JSONObject(raw as String).put("title", "Заметка")
+                                    editor.putString(id, item.toString())
+                                } catch (_: Exception) { }
+                            }
+                            editor.commit()
+                        }
+                        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        result.success(null)
+                    }
+                    "vaultBioStatus", "vaultBioEnable", "vaultBioUnlock", "vaultBioDisable" ->
+                        vaultBiometrics.handle(call.method, call.argument<String>("password"), result)
                     "attachmentClipboard" -> {
                         try {
                             val file = java.io.File(call.argument<String>("path") ?: "").canonicalFile

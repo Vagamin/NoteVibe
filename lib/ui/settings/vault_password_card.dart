@@ -6,6 +6,9 @@ import '../providers.dart';
 import '../../data/vault/vault_session.dart';
 import '../../data/vault/vault_transition.dart';
 import '../../data/vault/vault_mode.dart';
+import '../../data/vault/vault_biometrics.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import '../../main.dart' show restartApplication;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -17,6 +20,56 @@ class VaultPasswordCard extends ConsumerStatefulWidget {
 }
 
 class _VaultPasswordCardState extends ConsumerState<VaultPasswordCard> {
+  Future<String?> _passwordPrompt(String title) async {
+    final controller = TextEditingController();
+    final password = await showDialog<String>(context: context, builder: (c) => AlertDialog(
+      title: Text(title), content: TextField(controller: controller, obscureText: true,
+        autofocus: true, enableSuggestions: false, autocorrect: false,
+        decoration: const InputDecoration(labelText: 'Текущий пароль'),
+        onSubmitted: (value) => Navigator.pop(c, value)),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Отмена')),
+        FilledButton(onPressed: () => Navigator.pop(c, controller.text), child: const Text('Подтвердить'))],
+    ));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    controller.dispose();
+    return password;
+  }
+
+  Future<void> _backup() async {
+    final services = ref.read(servicesProvider);
+    final password = await _passwordPrompt('Экспорт базы без шифрования');
+    if (password == null || !mounted) return;
+    try {
+      await services.vault!.verifyPassword(password);
+      await services.flush();
+      final bytes = services.vault!.notes.database.exportBytes();
+      try {
+        final path = await FilePicker.saveFile(fileName: 'NoteVibe-backup-${DateTime.now().millisecondsSinceEpoch}.db',
+          bytes: bytes, mimeType: 'application/octet-stream', dialogTitle: 'Сохранить расшифрованную базу');
+        if (path != null && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('База сохранена без шифрования. Вложения хранятся отдельно и в этот файл не входят.')));
+      } finally { bytes.fillRange(0, bytes.length, 0); }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Экспорт не выполнен. Проверьте пароль и доступ к файлу.')));
+    }
+  }
+
+  Future<void> _biometrics() async {
+    try {
+      if (await VaultBiometrics.enabled()) {
+        await VaultBiometrics.disable();
+      } else {
+        final password = await _passwordPrompt('Подключить отпечаток');
+        if (password == null || !mounted) return;
+        await ref.read(servicesProvider).vault!.verifyPassword(password);
+        await VaultBiometrics.enroll(password);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Настройка входа по отпечатку изменена')));
+    } on PlatformException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Биометрия недоступна')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Не удалось подтвердить пароль')));
+    }
+  }
   Future<void> _toggle(bool enabled) async {
     final services = ref.read(servicesProvider);
     await showDialog<void>(context: context, barrierDismissible: false,
@@ -24,7 +77,7 @@ class _VaultPasswordCardState extends ConsumerState<VaultPasswordCard> {
   }
   @override
   Widget build(BuildContext context) {
-    if (!Platform.isWindows) return const SizedBox.shrink();
+    if (!Platform.isWindows && !Platform.isAndroid) return const SizedBox.shrink();
     final vault = ref.watch(servicesProvider).vault;
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, value: vault != null,
@@ -34,6 +87,11 @@ class _VaultPasswordCardState extends ConsumerState<VaultPasswordCard> {
       if (vault != null) TextButton.icon(onPressed: () => showDialog<void>(context: context,
         barrierDismissible: false, builder: (_) => _ChangePasswordDialog(vault: vault)),
         icon: const Icon(Icons.password), label: const Text('Изменить пароль')),
+      if (vault != null && Platform.isAndroid) TextButton.icon(onPressed: _biometrics,
+        icon: const Icon(Icons.fingerprint), label: const Text('Настроить вход по отпечатку')),
+      if (vault != null) TextButton.icon(onPressed: _backup,
+        icon: const Icon(Icons.backup_outlined), label: const Text('Экспорт расшифрованной базы')),
+      if (vault != null) const Text('Экспорт содержит все записи базы, но не отдельные файлы вложений. Копия не защищена паролем.'),
       const SizedBox(height: 8),
       Text('Переключение переносит и проверяет данные, затем перезапускает интерфейс. Экспортированные вами файлы вне приложения не шифруются. Удаление старых файлов не гарантирует их физического стирания с SSD или из системных резервных копий.', style: Theme.of(context).textTheme.bodySmall),
     ])));
@@ -79,6 +137,11 @@ class _ToggleVaultDialogState extends State<_ToggleVaultDialog> {
       final caches = [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')), Directory(p.join(tmp.path, 'notevibe_clipboard')),
         Directory(p.join(Directory.systemTemp.path, 'notevibe_open'))];
       final deviceId = (await File(p.join(root.path, 'device_id')).readAsString()).trim();
+      if (Platform.isAndroid && widget.enabled) {
+        // Remove plaintext plugin caches before committing the transition.
+        await FilePicker.clearTemporaryFiles();
+        await const MethodChannel('notevibe/update').invokeMethod<void>('vaultSecureScreen', {'enabled': true});
+      }
       if (await VaultTransition.pending(root) != null) {
         await VaultTransition.recover(root, deviceId: deviceId, password: _password.text,
           keys: services.legacyKeys!, caches: caches);
@@ -87,6 +150,7 @@ class _ToggleVaultDialogState extends State<_ToggleVaultDialog> {
         await VaultTransition.enable(root, deviceId: deviceId, password: _password.text,
           keys: services.legacyKeys!, caches: caches);
       } else if (!widget.enabled && await VaultMode.encrypted(root)) {
+        await VaultBiometrics.disable();
         await VaultTransition.disable(root, deviceId: deviceId, password: _password.text,
           keys: services.legacyKeys!, caches: caches);
       }
@@ -141,6 +205,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
     }
     setState(() { _busy = true; _error = null; });
     try {
+      await VaultBiometrics.disable();
       await widget.vault.changePassword(_current.text, _next.text);
       if (mounted) Navigator.pop(context);
     } catch (_) {

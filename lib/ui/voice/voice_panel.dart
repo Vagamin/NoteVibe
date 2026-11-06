@@ -16,7 +16,8 @@ import 'voice_service.dart';
 final voiceServiceProvider = Provider<VoiceService>((ref) {
   final s = ref.watch(servicesProvider);
   final svc = VoiceService(s.store, s.attachments);
-  ref.onDispose(svc.dispose);
+  s.lockHandlers.add(svc.cancel);
+  ref.onDispose(() { s.lockHandlers.remove(svc.cancel); svc.dispose(); });
   return svc;
 });
 

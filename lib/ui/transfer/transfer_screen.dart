@@ -64,6 +64,14 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
   List<DiscoveredDevice> _senders = [];
   DiscoveredDevice? _sender;
   bool _manualLink = false;
+  AppServices? _services;
+  Future<void> _onLock() async {
+    await _discoverySubscription?.cancel();
+    _discovery?.dispose();
+    _discovery = null;
+    await _offer?.close();
+    await _channel?.close();
+  }
 
   Future<void> _discover() async {
     if (_discovery != null) return;
@@ -105,6 +113,8 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
   @override
   void initState() {
     super.initState();
+    _services = ref.read(servicesProvider);
+    _services!.lockHandlers.add(_onLock);
     if (widget.receive) { _mode = 'receive'; _discover(); }
     if (widget.selectedIds != null) {
       _selected.addAll(widget.selectedIds!);
@@ -115,6 +125,7 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
 
   @override
   void dispose() {
+    _services?.lockHandlers.remove(_onLock);
     _discoverySubscription?.cancel();
     _discovery?.dispose();
     _offer?.close();

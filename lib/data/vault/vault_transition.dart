@@ -136,6 +136,25 @@ class VaultTransition {
       for (final name in ['identity_x25519', ...peers]) { await keys.delete(name); }
       await _deleteFile(File(p.join(root.path, 'keys.dpapi.json')));
     } else {
+      // Android secure storage is shared, not a staging directory. Restore its
+      // keys only after preparation commits, and verify every trusted peer.
+      if (Platform.isAndroid) {
+        if (password == null) throw const VaultLocked();
+        final session = await VaultSession.unlock(vaultDir, password, deviceId: deviceId);
+        try {
+          final protectedKeys = VaultKeyStore(Directory(p.join(vaultDir.path, 'keys')), session.notes.snapshots.key);
+          for (final name in ['identity_x25519', ...session.notes.store.listPeers().map((peer) => 'peer_${peer.deviceId}')]) {
+            final bytes = await protectedKeys.read(name);
+            if (bytes == null || bytes.length != 32) throw const FormatException('Отсутствует ключ обратного переноса');
+            await keys.write(name, bytes);
+            final copied = await keys.read(name);
+            if (copied == null || copied.length != bytes.length ||
+                List.generate(bytes.length, (i) => copied[i] ^ bytes[i]).any((b) => b != 0)) {
+              throw const FormatException('Не проверен восстановленный ключ');
+            }
+          }
+        } finally { await session.close(); }
+      }
       // Replaying rename is idempotent: absent staging files were already moved.
       final staging = Directory(p.join(root.path, 'plain-transition'));
       if (await staging.exists()) {
@@ -156,7 +175,8 @@ class VaultTransition {
         }
       }
       if (!await File(p.join(root.path, 'notevibe.db')).exists() ||
-          !await File(p.join(root.path, 'keys.dpapi.json')).exists()) {
+          (!Platform.isAndroid && !await File(p.join(root.path, 'keys.dpapi.json')).exists()) ||
+          (Platform.isAndroid && (await keys.read('identity_x25519'))?.length != 32)) {
         throw const FormatException('Обратный перенос не завершён');
       }
       await _atomic(File(p.join(root.path, 'storage-mode.json')), {'v': 1, 'mode': 'plain'});

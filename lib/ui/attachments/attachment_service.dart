@@ -41,6 +41,7 @@ class AttachmentService {
   Future<AttachResult> pickAndAttach(String noteId) async {
     final picked = await FilePicker.pickFiles();
     final result = AttachResult();
+    try {
     for (final f in picked) {
       final path = f.path;
       if (path == null) {
@@ -63,6 +64,9 @@ class AttachmentService {
         sha256: hash,
       );
       result.added++;
+    }
+    } finally {
+      if (Platform.isAndroid && files is EncryptedAttachmentStorage) await FilePicker.clearTemporaryFiles();
     }
     return result;
   }

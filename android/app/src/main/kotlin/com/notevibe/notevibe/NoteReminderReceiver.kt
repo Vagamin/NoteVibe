@@ -39,7 +39,7 @@ class NoteReminderReceiver : BroadcastReceiver() {
             action = "com.notevibe.OPEN_NOTE"
             data = android.net.Uri.parse("notevibe://note/$id")
             putExtra("reminderNoteId", id)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL)
@@ -78,7 +78,8 @@ class NoteReminderReceiver : BroadcastReceiver() {
             val pending = alarmIntent(context, id, at)
             val prefs = context.getSharedPreferences("note_reminders", Context.MODE_PRIVATE)
             val previous = prefs.getString(id, null)
-            check(prefs.edit().putString(id, JSONObject().put("title", title).put("at", at).toString()).commit()) {
+            val protected = context.getSharedPreferences("vault_privacy", Context.MODE_PRIVATE).getBoolean("enabled", false)
+            check(prefs.edit().putString(id, JSONObject().put("title", if (protected) "Заметка" else title).put("at", at).toString()).commit()) {
                 "Не удалось сохранить напоминание"
             }
             try {
@@ -89,6 +90,7 @@ class NoteReminderReceiver : BroadcastReceiver() {
                     Intent(context, MainActivity::class.java).apply {
                         data = android.net.Uri.parse("notevibe://note/$id")
                         putExtra("reminderNoteId", id)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                     }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 alarm.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), pending)
             } catch (error: Exception) {

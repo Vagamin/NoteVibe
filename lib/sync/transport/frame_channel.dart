@@ -63,12 +63,21 @@ class SocketFrameChannel with _FrameQueue implements FrameChannel {
   final _buf = BytesBuilder(copy: false);
   Uint8List _pending = Uint8List(0);
   late final StreamSubscription<Uint8List> _sub;
+  void Function()? onClosed;
+  Future<void>? _closing;
+
+  Future<void> abort() async {
+    onClosed?.call();
+    _fail(TransportException('aborted'));
+    _socket.destroy();
+    await _sub.cancel();
+  }
 
   SocketFrameChannel(this._socket) {
     _socket.setOption(SocketOption.tcpNoDelay, true);
     _sub = _socket.listen(_onData,
-        onError: (Object e) => _fail(TransportException('socket error: $e')),
-        onDone: () => _fail(TransportException('connection closed')),
+        onError: (Object e) { _fail(TransportException('socket error: $e')); onClosed?.call(); },
+        onDone: () { _fail(TransportException('connection closed')); onClosed?.call(); },
         cancelOnError: true);
   }
 
@@ -118,11 +127,14 @@ class SocketFrameChannel with _FrameQueue implements FrameChannel {
   Future<Uint8List> receive({Duration timeout = const Duration(seconds: 30)}) => _next(timeout);
 
   @override
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
+    onClosed?.call();
     try {
       await _socket.flush();
     } catch (_) {}
-    await _socket.close().catchError((_) => _socket);
+    try { await _socket.close(); } catch (_) { /* Concurrent send/abort. */ }
     _socket.destroy();
     await _sub.cancel();
     _fail(TransportException('closed'));

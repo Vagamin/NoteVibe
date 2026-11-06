@@ -57,6 +57,22 @@ class NoteVibeApp extends ConsumerStatefulWidget {
 }
 
 class _NoteVibeAppState extends ConsumerState<NoteVibeApp> {
+  bool _locked = false;
+  Future<void>? _locking;
+
+  void _lockMobile() {
+    final services = ref.read(servicesProvider);
+    if (!Platform.isAndroid || services.vault == null || services.transitioning || _locked) return;
+    services.mobileLocked = true;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _locked = true);
+    _locking = () async {
+      await services.sync.stop();
+      for (final stop in services.lockHandlers.toList()) { await stop(); }
+      await services.flush();
+    }();
+    unawaited(_locking!.catchError((Object _) {}));
+  }
   static const _closeChannel = MethodChannel('notehub/lifecycle');
   late final AppLifecycleListener _lifecycle;
   @override
@@ -85,7 +101,7 @@ class _NoteVibeAppState extends ConsumerState<NoteVibeApp> {
       }
     }, onInactive: () {
       unawaited(ref.read(servicesProvider).flush().catchError((Object _) {}));
-    });
+    }, onPause: _lockMobile);
   }
   @override
   void dispose() { _lifecycle.dispose(); super.dispose(); }
@@ -107,9 +123,18 @@ class _NoteVibeAppState extends ConsumerState<NoteVibeApp> {
         FlutterQuillLocalizations.delegate,
       ],
       home: const HomeScreen(),
-      builder: (context, child) => Column(children: [
+      builder: (context, child) => Stack(children: [Column(children: [
         const VaultSaveStatus(),
         Expanded(child: child ?? const SizedBox.shrink()),
+      ]),
+        if (_locked) Positioned.fill(child: BlockSemantics(child: VaultUnlock(args: const [],
+          lockedServices: ref.read(servicesProvider), pendingLock: _locking, onUnlocked: (_) async {
+            try {
+              await _locking;
+              ref.read(servicesProvider).mobileLocked = false;
+              if (mounted) setState(() => _locked = false);
+            } catch (_) { /* Keep locked if pending changes could not be saved. */ }
+          }))),
       ]),
     );
   }

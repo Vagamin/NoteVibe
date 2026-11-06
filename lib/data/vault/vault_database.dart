@@ -82,6 +82,12 @@ class VaultDatabase {
     await VaultFile.write(destination, Stream.value(bytes), key);
   }
 
+  /// Complete SQLite image in RAM for an explicitly requested plaintext export.
+  Uint8List exportBytes() {
+    if (_closed || !database.autocommit) throw StateError('База занята или закрыта');
+    return Uint8List.fromList(_vfs.fileData[_path]!);
+  }
+
   void dispose() {
     if (_closed) return;
     _closed = true;

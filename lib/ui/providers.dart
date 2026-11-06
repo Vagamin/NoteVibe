@@ -35,6 +35,8 @@ class AppServices {
   final pendingEditors = <void Function()>{};
   bool _closed = false;
   bool transitioning = false;
+  bool mobileLocked = false;
+  final lockHandlers = <Future<void> Function()>{};
   AppServices(this.store, this.sync, this.attachments, {this.vault,
     this.dataDirectory, this.legacyKeys, this.applicationLock, this.startupArgs = const []});
 
@@ -99,15 +101,21 @@ class AppServices {
       await idFile.writeAsString(deviceId, flush: true);
     }
     VaultLock? appLock;
-    if (Platform.isWindows) appLock = await VaultLock.acquire(dir);
+    if (Platform.isWindows || Platform.isAndroid) appLock = await VaultLock.acquire(dir);
     try {
-    if (Platform.isWindows && await VaultTransition.pending(dir) != null) {
+    if ((Platform.isWindows || Platform.isAndroid) && await VaultTransition.pending(dir) != null) {
+      if (Platform.isAndroid) {
+        await const MethodChannel('notevibe/update').invokeMethod<void>('vaultSecureScreen', {'enabled': true});
+      }
       final tmp = await getTemporaryDirectory();
       await VaultTransition.recover(dir, deviceId: deviceId, password: vaultPassword, keys: keyStore,
         caches: [Directory(p.join(tmp.path, 'notevibe_play')), Directory(p.join(tmp.path, 'notevibe_gallery')), Directory(p.join(tmp.path, 'notevibe_clipboard')),
           Directory(p.join(Directory.systemTemp.path, 'notevibe_open'))]);
     }
-    final encrypted = Platform.isWindows && await VaultMode.encrypted(dir);
+    final encrypted = (Platform.isWindows || Platform.isAndroid) && await VaultMode.encrypted(dir);
+    if (Platform.isAndroid) {
+      await const MethodChannel('notevibe/update').invokeMethod<void>('vaultSecureScreen', {'enabled': encrypted});
+    }
     if (!encrypted && Platform.isWindows && await File(p.join(dir.path, 'keys.dpapi.json')).exists()) {
       keyStore = DpapiFileKeyStore(File(p.join(dir.path, 'keys.dpapi.json')));
     }

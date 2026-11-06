@@ -42,10 +42,11 @@ class VaultMigration {
       final encryptedKeys = VaultKeyStore(Directory('${source.path}/keys'), key);
       final identity = await encryptedKeys.read('identity_x25519');
       if (identity != null) {
-        if (destinationKeys == null && !Platform.isWindows) {
-          throw UnsupportedError('Перенос ключей в обычное хранилище поддерживается только Windows');
+        if (destinationKeys == null && !Platform.isWindows && !Platform.isAndroid) {
+          throw UnsupportedError('Неподдерживаемая платформа переноса ключей');
         }
-        final plainKeys = destinationKeys?.call(staging) ?? DpapiFileKeyStore(File('${staging.path}/keys.dpapi.json'));
+        final plainKeys = destinationKeys?.call(staging) ?? (Platform.isAndroid
+          ? MemoryKeyStore() : DpapiFileKeyStore(File('${staging.path}/keys.dpapi.json')));
         for (final name in ['identity_x25519', ...store.listPeers().map((p) => 'peer_${p.deviceId}')]) {
           final bytes = await encryptedKeys.read(name);
           if (bytes == null) throw const FormatException('Отсутствует ключ синхронизации для обратной миграции');

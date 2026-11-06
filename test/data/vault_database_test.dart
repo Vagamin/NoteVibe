@@ -3,8 +3,30 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notevibe/data/vault/vault_database.dart';
 import 'package:notevibe/data/vault/vault_key.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 void main() {
+  test('plaintext export is a standalone complete SQLite database and isolated copy', () async {
+    final dir = await Directory.systemTemp.createTemp('notevibe-export-test-');
+    addTearDown(() => dir.delete(recursive: true));
+    final db = VaultDatabase.create();
+    addTearDown(db.dispose);
+    db.database.execute('CREATE TABLE items (text TEXT)');
+    db.database.execute('INSERT INTO items VALUES (?)', ['Секрет']);
+    final bytes = db.exportBytes();
+    final file = await File('${dir.path}/backup.db').writeAsBytes(bytes, flush: true);
+    bytes.fillRange(0, bytes.length, 0);
+    final exported = sqlite3.open(file.path);
+    try {
+      expect(exported.select('PRAGMA integrity_check').single.values.single, 'ok');
+      expect(exported.select('SELECT text FROM items').single['text'], 'Секрет');
+    } finally { exported.close(); }
+    expect(db.database.select('SELECT text FROM items').single['text'], 'Секрет');
+    db.database.execute('BEGIN');
+    db.database.execute('INSERT INTO items VALUES (?)', ['Не сохранено']);
+    expect(db.exportBytes, throwsStateError);
+    db.database.execute('ROLLBACK');
+  });
   test('SQLite snapshot restores in RAM without plaintext database files', () async {
     final dir = await Directory.systemTemp.createTemp('notehub-vault-db-test-');
     addTearDown(() => dir.delete(recursive: true));

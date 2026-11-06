@@ -72,6 +72,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      if (ref.read(servicesProvider).mobileLocked) return;
       _openReminder();
       ref.read(syncProvider).wakeUp();
       _checkUpdate();
@@ -93,12 +94,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Future<void> _checkUpdate() async {
-    if (!mounted || _checkingUpdate) return;
+    if (!mounted || _checkingUpdate || ref.read(servicesProvider).mobileLocked) return;
     final store = ref.read(storeProvider);
     if (store.getSetting('updates_auto') == 'false') return;
     final last = int.tryParse(store.getSetting('updates_last_check') ?? '') ?? 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - last < const Duration(hours: 6).inMilliseconds) return;
+    if (now - last < const Duration(minutes: 5).inMilliseconds) return;
     _checkingUpdate = true;
     store.setSetting('updates_last_check', '$now');
     try {

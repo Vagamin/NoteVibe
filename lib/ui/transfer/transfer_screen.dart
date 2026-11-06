@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +12,7 @@ import '../../data/note_store.dart';
 import '../../sync/crypto/secure_channel.dart';
 import '../../sync/transfer/note_transfer.dart';
 import '../../sync/transfer/transfer_session.dart';
+import '../../sync/discovery/lan_discovery.dart';
 import '../providers.dart';
 
 Future<void> showTransferMenu(BuildContext context, WidgetRef ref) async {
@@ -56,6 +59,31 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
   bool _scan = false;
   int? _completedCount;
   NoteTransferProgress? _progress;
+  LanDiscovery? _discovery;
+  StreamSubscription<List<DiscoveredDevice>>? _discoverySubscription;
+  List<DiscoveredDevice> _senders = [];
+  DiscoveredDevice? _sender;
+  bool _manualLink = false;
+
+  Future<void> _discover() async {
+    if (_discovery != null) return;
+    final discovery = LanDiscovery(deviceId: 'receiver-${DateTime.now().microsecondsSinceEpoch}',
+      name: 'Получатель', fingerprint: '', tcpPort: () => 0, udpPort: TransferSession.discoveryPort);
+    _discovery = discovery;
+    _discoverySubscription = discovery.devices.listen((devices) {
+      if (!mounted) return;
+      setState(() {
+        _senders = devices.where((d) {
+          try { return d.port > 0 && d.deviceId.length <= 128 && base64Url.decode(d.fingerprint).length == 32; }
+          catch (_) { return false; }
+        }).take(20).toList();
+        final matches = _senders.where((d) => d.deviceId == _sender?.deviceId);
+        _sender = matches.isNotEmpty ? matches.first : _senders.length == 1 ? _senders.first : null;
+      });
+    });
+    try { await discovery.start(); }
+    catch (_) { if (mounted) setState(() => _error = 'Поиск недоступен. Используйте QR или ссылку.'); }
+  }
 
   void _onProgress(NoteTransferProgress progress) {
     if (mounted) setState(() { _progress = progress; });
@@ -77,7 +105,7 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.receive) { _mode = 'receive'; _scan = Platform.isAndroid; }
+    if (widget.receive) { _mode = 'receive'; _discover(); }
     if (widget.selectedIds != null) {
       _selected.addAll(widget.selectedIds!);
       _mode = 'send';
@@ -87,6 +115,8 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
 
   @override
   void dispose() {
+    _discoverySubscription?.cancel();
+    _discovery?.dispose();
     _offer?.close();
     _channel?.close();
     _code.dispose();
@@ -117,6 +147,8 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
       final offer = await TransferSession.create(addresses: private);
       if (!mounted) { await offer.close(); return; }
       _offer = offer;
+      try { await offer.announce(services.sync.identity.name); }
+      catch (_) { /* QR remains available if UDP discovery is blocked. */ }
       setState(() { _status = 'Покажите QR получателю. Действует 5 минут.'; });
       final channel = await offer.connected;
       if (!mounted) { await channel.close(); return; }
@@ -136,12 +168,16 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
     }
   }
 
-  Future<void> _receive(String code) async {
+  Future<void> _receive(String code, {DiscoveredDevice? sender}) async {
     if (_busy) return;
+    if (sender != null) {
+      final current = _discovery?.current.where((d) => d.deviceId == sender!.deviceId).toList();
+      if (current != null && current.isNotEmpty) sender = current.first;
+    }
     setState(() { _busy = true; _progress = null; _completedCount = null; _scan = false; _error = null; _status = 'Подключение…'; });
     try {
       final services = ref.read(servicesProvider);
-      final channel = await TransferSession.connect(code);
+      final channel = sender == null ? await TransferSession.connect(code) : await TransferSession.connectCode(sender, code.replaceAll(' ', ''));
       if (!mounted) { await channel.close(); return; }
       _channel = channel;
       final notes = await NoteTransfer.receive(channel, services.store, services.attachments,
@@ -201,29 +237,61 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
             ref.read(selectionProvider.notifier).start();
             Navigator.pop(context);
           }, icon: const Icon(Icons.upload_outlined), label: const Text('Отправить')),
-           FilledButton.tonalIcon(onPressed: () => setState(() { _mode = 'receive'; _completedCount = null; _scan = Platform.isAndroid; _status = null; _error = null; }), icon: const Icon(Icons.download_outlined), label: const Text('Получить')),
+           FilledButton.tonalIcon(onPressed: () { setState(() { _mode = 'receive'; _completedCount = null; _scan = false; _status = null; _error = null; }); _discover(); }, icon: const Icon(Icons.download_outlined), label: const Text('Получить')),
         ]),
         if (_mode == 'send' && !_busy) ...[
           const SizedBox(height: 16),
           FilledButton(onPressed: _send, child: const Text('Повторить передачу')),
         ],
-        if (_offer != null) ...[
-          const SizedBox(height: 16),
+         if (_offer != null) ...[
+           const SizedBox(height: 16),
+           Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(children: [
+             const Text('Код для получателя'),
+             const SizedBox(height: 8),
+             SelectableText('${_offer!.code.substring(0, 3)} ${_offer!.code.substring(3)}',
+               style: Theme.of(context).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 4)),
+             const SizedBox(height: 8),
+             const Text('На другом устройстве: «Получить» → выберите отправителя → введите 6 цифр.\nКод действует 5 минут. После трёх неверных попыток создайте передачу заново.', textAlign: TextAlign.center),
+           ]))),
+           const SizedBox(height: 16),
           Center(child: Container(color: Colors.white, padding: const EdgeInsets.all(12),
             child: QrImageView(data: _offer!.qr.encode(), size: 260))),
           TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _offer!.qr.encode())),
             icon: const Icon(Icons.copy), label: const Text('Копировать код передачи')),
         ],
          if (_mode == 'receive' && !_busy && _completedCount == null) ...[
-          const SizedBox(height: 16),
+           const SizedBox(height: 16),
+           if (!_manualLink && !_scan) ...[
+             Text('Отправители в локальной сети', style: Theme.of(context).textTheme.titleMedium),
+             const SizedBox(height: 8),
+             if (_senders.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 12),
+               child: Text('Поиск отправителя… Откройте «Отправить» на другом устройстве в той же Wi-Fi сети.')),
+             for (final device in _senders) Card(child: ListTile(
+               leading: Icon(_sender?.deviceId == device.deviceId ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+               title: Text(device.name, maxLines: 1, overflow: TextOverflow.ellipsis), subtitle: Text(device.address),
+               onTap: () => setState(() => _sender = device))),
+             const SizedBox(height: 12),
+             TextField(controller: _code, keyboardType: TextInputType.number, maxLength: 6,
+               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+               decoration: const InputDecoration(labelText: 'Код из 6 цифр', hintText: '123456'),
+               onSubmitted: (code) { if (_sender != null) _receive(code, sender: _sender); }),
+             const SizedBox(height: 12),
+             FilledButton(onPressed: _sender == null ? null : () => _receive(_code.text, sender: _sender), child: const Text('Подключиться')),
+           ],
+           Wrap(spacing: 8, children: [
+             if (Platform.isAndroid) TextButton.icon(onPressed: () => setState(() { _scan = !_scan; _manualLink = false; _code.clear(); }),
+               icon: const Icon(Icons.qr_code_scanner), label: Text(_scan ? 'Ввести 6 цифр' : 'Сканировать QR')),
+             TextButton(onPressed: () => setState(() { _manualLink = !_manualLink; _scan = false; _code.clear(); }),
+               child: Text(_manualLink ? 'Ввести 6 цифр' : 'Вставить длинную ссылку')),
+           ]),
            if (_scan) ...[ClipRRect(borderRadius: BorderRadius.circular(20), clipBehavior: Clip.hardEdge,
              child: SizedBox(height: 280, child: MobileScanner(onDetect: (capture) {
             final raw = capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
             if (raw != null) _receive(raw);
            }))), const SizedBox(height: 20)],
-          TextField(controller: _code, decoration: const InputDecoration(labelText: 'Код передачи', hintText: 'Вставьте скопированную ссылку из QR')),
+           if (_manualLink) TextField(controller: _code, decoration: const InputDecoration(labelText: 'Ссылка передачи', hintText: 'Вставьте скопированную ссылку из QR')),
           const SizedBox(height: 12),
-          FilledButton(onPressed: () => _receive(_code.text), child: const Text('Подключиться')),
+           if (_manualLink) FilledButton(onPressed: () => _receive(_code.text), child: const Text('Подключиться')),
         ],
          if (_busy && _completedCount == null) Padding(padding: const EdgeInsets.symmetric(vertical: 16),
            child: TransferProgressCard(progress: _progress, status: _status ?? 'Подготовка…')),

@@ -1,9 +1,41 @@
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notevibe/sync/transfer/transfer_session.dart';
+import 'package:notevibe/sync/discovery/lan_discovery.dart';
 
 void main() {
+  DiscoveredDevice sender(TransferSession session) => DiscoveredDevice(
+    deviceId: session.qr.id, name: 'Test sender', address: '127.0.0.1',
+    port: session.qr.port, fingerprint: base64UrlEncode(session.qr.key), seenAt: DateTime.now());
+
+  test('six digit code authenticates encrypted single-use transfer', () async {
+    final session = await TransferSession.create(addresses: ['127.0.0.1']);
+    addTearDown(session.close);
+    expect(session.code, matches(RegExp(r'^\d{6}$')));
+    final client = await TransferSession.connectCode(sender(session), session.code);
+    final server = await session.connected;
+    addTearDown(client.close);
+    addTearDown(server.close);
+    await client.send({'t': 'test', 'text': 'Private'});
+    expect((await server.receive())['text'], 'Private');
+    await expectLater(TransferSession.connectCode(sender(session), session.code), throwsException);
+  });
+
+  test('three wrong short codes revoke QR and code together', () async {
+    final session = await TransferSession.create(addresses: ['127.0.0.1']);
+    addTearDown(session.close);
+    final wrong = session.code == '000000' ? '111111' : '000000';
+    final revoked = expectLater(session.connected, throwsException);
+    for (var i = 0; i < 3; i++) {
+      await expectLater(TransferSession.connectCode(sender(session), wrong), throwsException);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    await revoked;
+    await expectLater(TransferSession.connect(session.qr.encode()), throwsException);
+  });
+
   test('transfer QR is separate from pairing and rejects unsafe targets', () async {
     final session = await TransferSession.create(addresses: ['127.0.0.1']);
     addTearDown(session.close);

@@ -122,6 +122,10 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
       // Recheck at install time: the settings page may have stayed open while
       // newer releases were published. Updates are full packages, not patches.
       final latest = await UpdateService.fetchLatest();
+      if (!UpdateService.isNewer(latest.version, appVersion)) {
+        if (mounted) setState(() => _phase = _Phase.upToDate);
+        return;
+      }
       final abi = Platform.isAndroid ? await UpdateService.androidAbi() : '';
       final asset = UpdateService.pickAsset(latest, abi: abi);
       if (asset == null) throw const UpdateException('Нет файла обновления для этого устройства.');
@@ -145,12 +149,7 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
         }
       } else {
         final launcher = UpdateService.windowsLauncherPath();
-        final file = await UpdateService.download(
-          asset,
-          await UpdateService.downloadDir(),
-          _onProgress,
-          onStatus: _onDownloadStatus,
-        );
+        final file = await UpdateService.download(asset, await UpdateService.downloadDir(), _onProgress, onStatus: _onDownloadStatus);
         if (!mounted) return;
         if (launcher == null) {
         if (mounted) {

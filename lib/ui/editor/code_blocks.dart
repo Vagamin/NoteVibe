@@ -119,6 +119,12 @@ class _CodeBlockState extends State<_CodeBlock> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
         Row(children: [
           IconButton(tooltip: collapsed ? 'Развернуть код' : 'Свернуть код',
+            style: IconButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.all(4),
+              minimumSize: const Size(32, 32),
+              tapTargetSize: MaterialTapTargetSize.padded,
+            ),
             icon: Icon(collapsed ? Icons.chevron_right : Icons.expand_more), onPressed: () {
               setState(() => collapsed = !collapsed);
               widget.onToggle();

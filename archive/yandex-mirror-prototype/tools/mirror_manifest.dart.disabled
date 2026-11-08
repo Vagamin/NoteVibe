@@ -1,0 +1,39 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:crypto/crypto.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:path/path.dart' as p;
+
+/// Run with `dart run tools/mirror_manifest.dart KEY_PATH VERSION+BUILD`.
+/// A new signing seed is created only when absent. Keep it outside the repo.
+Future<void> main(List<String> args) async {
+  if (args.length != 2) throw ArgumentError('Expected private key path and version+build');
+  final keyFile = File(args[0]);
+  final algorithm = Ed25519();
+  if (!keyFile.existsSync()) {
+    keyFile.parent.createSync(recursive: true);
+    final pair = await algorithm.newKeyPair();
+    keyFile.writeAsStringSync(base64Encode(await pair.extractPrivateKeyBytes()), flush: true);
+  }
+  final pair = await algorithm.newKeyPairFromSeed(base64Decode(keyFile.readAsStringSync().trim()));
+  final publicKey = base64Encode((await pair.extractPublicKey()).bytes);
+  final version = args[1];
+  if (!RegExp(r'^\d+\.\d+\.\d+\+\d+$').hasMatch(version)) throw ArgumentError('Invalid version');
+  final nameVersion = version.split('+').first;
+  final files = ['NoteVibe.exe', 'NoteVibe-$nameVersion-arm64.apk',
+    'NoteVibe-$nameVersion-armeabi-v7a.apk', 'NoteVibe-$nameVersion-x86_64.apk'];
+  final assets = <Map<String, dynamic>>[];
+  for (final name in files) {
+    final file = File(p.join('release', name));
+    assets.add({'name': name, 'path': '/$version/$name', 'size': await file.length(),
+      'digest': 'sha256:${await sha256.bind(file.openRead()).first}'});
+  }
+  final payload = utf8.encode(jsonEncode({'schema': 1, 'version': version,
+    'expires': DateTime.now().toUtc().add(const Duration(days: 365)).toIso8601String(),
+    'notes': await File('release/$nameVersion-stable.md').readAsString(), 'assets': assets}));
+  final signature = await algorithm.sign(payload, keyPair: pair);
+  await File('release/latest.json').writeAsString(jsonEncode({
+    'payload': base64Encode(payload), 'signature': base64Encode(signature.bytes)}), flush: true);
+  stdout.writeln('Public verification key: $publicKey');
+  stdout.writeln('Prepared release/latest.json. Upload version files first, latest.json LAST.');
+}

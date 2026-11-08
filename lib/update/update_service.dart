@@ -15,7 +15,8 @@ const updateRepo = 'Vagamin/NoteVibe';
 
 class UpdateException implements Exception {
   final String message;
-  const UpdateException(this.message);
+  final bool retryable;
+  const UpdateException(this.message, {this.retryable = false});
   @override
   String toString() => message;
 }
@@ -67,6 +68,17 @@ class UpdateService {
       pageUrl: 'https://github.com/Vagamin/NoteVibe/releases',
       assets: [ReleaseAsset(name: 'NoteVibe.exe', url: 'https://example.invalid/demo', size: 3)]);
     }
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _fetchLatestOnce();
+      } on UpdateException catch (error) {
+        if (!error.retryable || attempt >= 2) rethrow;
+        await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));
+      }
+    }
+  }
+
+  static Future<Release> _fetchLatestOnce() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final req = await client
@@ -75,17 +87,20 @@ class UpdateService {
         ..set(HttpHeaders.cacheControlHeader, 'no-cache')
         ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
         ..set(HttpHeaders.userAgentHeader, 'NoteVibe/$appVersion');
-      final res = await req.close();
-      final body = await utf8.decodeStream(res);
+      final res = await req.close().timeout(const Duration(seconds: 25));
+      final body = await utf8.decodeStream(res).timeout(const Duration(seconds: 25));
       if (res.statusCode == 404) {
         throw const UpdateException('Релизы не найдены или репозиторий закрыт для просмотра.');
       }
       if (res.statusCode != 200) {
-        throw UpdateException('GitHub ответил кодом ${res.statusCode}.');
+        final temporary = [429, 502, 503, 504].contains(res.statusCode);
+        throw UpdateException('Проверка списка релизов: api.github.com ответил кодом ${res.statusCode}.${temporary ? ' Сервис временно недоступен; это не ошибка файла обновления.' : ''}', retryable: temporary);
       }
       return Release.fromJson(jsonDecode(body) as Map<String, dynamic>);
     } on SocketException {
-      throw const UpdateException('Нет доступа к GitHub. Проверьте интернет.');
+      throw const UpdateException('Нет доступа к GitHub. Проверьте интернет.', retryable: true);
+    } on TimeoutException {
+      throw const UpdateException('Проверка списка релизов: api.github.com временно не отвечает (таймаут).', retryable: true);
     } finally {
       client.close(force: true);
     }

@@ -1,0 +1,25 @@
+import 'dart:convert';
+import 'package:cryptography/cryptography.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:notevibe/update/yandex_mirror.dart';
+
+void main() {
+  test('mirror requires authentic unexpired manifest and SHA256', () async {
+    final algorithm = Ed25519();
+    final pair = await algorithm.newKeyPair();
+    final key = base64Encode((await pair.extractPublicKey()).bytes);
+    final data = {'schema': 1, 'version': '1.6.2+94', 'notes': '',
+      'expires': DateTime.now().toUtc().add(const Duration(days: 1)).toIso8601String(),
+      'assets': [{'name': 'NoteVibe.exe', 'path': '/1.6.2+94/NoteVibe.exe', 'size': 1, 'digest': 'sha256:${'a' * 64}'}]};
+    Future<Map<String, dynamic>> envelope() async {
+      final bytes = utf8.encode(jsonEncode(data));
+      return {'payload': base64Encode(bytes), 'signature': base64Encode((await algorithm.sign(bytes, keyPair: pair)).bytes)};
+    }
+    expect(await YandexMirror.verify(await envelope(), key), data);
+    final tampered = await envelope();
+    tampered['payload'] = base64Encode(utf8.encode('{}'));
+    await expectLater(YandexMirror.verify(tampered, key), throwsFormatException);
+    data['expires'] = DateTime.utc(2000).toIso8601String();
+    await expectLater(YandexMirror.verify(await envelope(), key), throwsFormatException);
+  });
+}

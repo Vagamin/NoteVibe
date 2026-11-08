@@ -306,16 +306,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          AnimatedContainer(
+          Padding(
             key: _updatesKey,
-            duration: const Duration(milliseconds: 250),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: _highlightUpdates ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: AnimatedTheme(
+              duration: const Duration(milliseconds: 250),
+              data: Theme.of(context).copyWith(
+                cardTheme: Theme.of(context).cardTheme.copyWith(
+                  shape: _highlightUpdates
+                      ? RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7)),
+                        )
+                      : Theme.of(context).cardTheme.shape,
+                ),
+              ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 250),
+              style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                color: _highlightUpdates ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurface,
+              ),
+              child: const Text('Обновления'),
+            ),
           const SizedBox(height: 8),
             _SettingsSwitch(
               icon: Icons.update,
@@ -327,8 +340,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                setState(() {});
              },
            ),
-            UpdateCard(initialRelease: widget.initialRelease),
-            ]),
+             UpdateCard(initialRelease: widget.initialRelease),
+             ]),
+            ),
           ),
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),

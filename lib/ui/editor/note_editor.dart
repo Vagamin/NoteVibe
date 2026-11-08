@@ -434,10 +434,13 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               actions: [TextButton(onPressed: _save, child: const Text('Повторить'))],
             ),
           Expanded(
-            child: ListView(
+            child: Stack(children: [Positioned.fill(child: SingleChildScrollView(
               controller: _scroll,
               padding: EdgeInsets.symmetric(horizontal: widget.compact ? 12 : 24, vertical: 12),
-              children: [
+              // The editor is already laid out in full. A lazy ListView estimates
+              // the height of these very unequal children (title/code/files),
+              // making scrollbar metrics jump as they enter the viewport.
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(crossAxisAlignment: CrossAxisAlignment.center, children: [Expanded(child: ValueListenableBuilder<TextEditingValue>(
                   valueListenable: _title,
                   builder: (context, value, _) => EditableTitleHint(
@@ -505,9 +508,26 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                    ),
                    ]),
                 const SizedBox(height: 16),
-                AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
-              ],
-            ),
+                 AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
+               ]),
+            )),
+              Positioned(right: 16, bottom: 16, child: AnimatedBuilder(
+                animation: _scroll,
+                builder: (context, _) {
+                  final visible = _scroll.hasClients && _scroll.offset > 300;
+                  if (!visible) return const SizedBox.shrink();
+                  return FloatingActionButton.small(
+                    heroTag: null,
+                    tooltip: 'В начало заметки',
+                    onPressed: () {
+                      _editorFocus.unfocus();
+                      _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+                    },
+                    child: const Icon(Icons.vertical_align_top),
+                  );
+                },
+              )),
+            ]),
           ),
           if (widget.compact && !note.isVoice)
             SafeArea(

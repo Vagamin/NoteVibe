@@ -11,7 +11,8 @@ void main() {
     for (final f in dir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.md'))) {
       final text = f.readAsStringSync();
       expect(text.contains('\uFFFD'), isFalse, reason: '${f.path} has broken characters');
-      expect(RegExp(r'[ЪЫЬЭЮЯ][а-я]|Х[а-я]').hasMatch(text), isFalse, reason: '${f.path} looks mis-decoded');
+      // Valid Russian words (e.g. «Яндекс») must not be treated as mojibake.
+      expect(RegExp(r'Рџ|РЅ|СЃ|СЏ|â€').hasMatch(text), isFalse, reason: '${f.path} looks mis-decoded');
     }
   });
 }

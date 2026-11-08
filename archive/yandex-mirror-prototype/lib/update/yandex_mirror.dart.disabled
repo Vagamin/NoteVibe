@@ -1,0 +1,68 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:cryptography/cryptography.dart';
+
+const updateMirrorFolder = 'https://disk.yandex.ru/d/wGSbdk-DsW0JrQ';
+// Public verification key only; the signing key never ships with the app.
+const updateMirrorPublicKey = 'UXp/wzHINvGVhBF1cykUDGwoMAJ7zYJpurWzrYICfrE=';
+
+class YandexMirror {
+  static Future<Map<String, dynamic>> jsonRequest(Uri uri) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.getUrl(uri).timeout(const Duration(seconds: 15));
+      final response = await request.close().timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) throw HttpException('Резервный источник: HTTP ${response.statusCode}');
+      final bytes = <int>[];
+      await for (final part in response.timeout(const Duration(seconds: 15))) {
+        bytes.addAll(part);
+        if (bytes.length > 1024 * 1024) throw const FormatException('Слишком большой манифест');
+      }
+      return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    } finally { client.close(force: true); }
+  }
+
+  static Future<String> downloadUrl(String path) async {
+    if (!RegExp(r'^/[a-zA-Z0-9+._/-]+$').hasMatch(path) || path.contains('..')) {
+      throw const FormatException('Неверный путь резервного файла');
+    }
+    final result = await jsonRequest(Uri.https('cloud-api.yandex.net', '/v1/disk/public/resources/download',
+      {'public_key': updateMirrorFolder, 'path': path}));
+    final url = Uri.parse(result['href'] as String);
+    if (url.scheme != 'https' || url.userInfo.isNotEmpty) throw const FormatException('Небезопасная ссылка');
+    return url.toString();
+  }
+
+  static Future<Map<String, dynamic>> verify(Map<String, dynamic> envelope, String publicKey) async {
+    final payload = base64Decode(envelope['payload'] as String);
+    final valid = await Ed25519().verify(payload, signature: Signature(base64Decode(envelope['signature'] as String),
+      publicKey: SimplePublicKey(base64Decode(publicKey), type: KeyPairType.ed25519)));
+    if (!valid) throw const FormatException('Подпись резервного обновления недействительна');
+    final data = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
+    if (data['schema'] != 1) throw const FormatException('Неизвестный формат манифеста');
+    final version = data['version'];
+    if (version is! String || !RegExp(r'^\d+\.\d+\.\d+\+\d+$').hasMatch(version) || data['notes'] is! String) {
+      throw const FormatException('Неверная версия манифеста');
+    }
+    final expires = DateTime.parse(data['expires'] as String);
+    if (!expires.isAfter(DateTime.now().toUtc())) throw const FormatException('Манифест обновления устарел');
+    final names = <String>{};
+    for (final raw in data['assets'] as List) {
+      final asset = raw as Map;
+      if (!RegExp(r'^[a-zA-Z0-9._+-]+$').hasMatch(asset['name'] as String) ||
+          !names.add(asset['name'] as String) ||
+          asset['path'] != '/$version/${asset['name']}' ||
+          !RegExp(r'^sha256:[0-9a-f]{64}$').hasMatch(asset['digest'] as String) ||
+          (asset['size'] as num) <= 0) {
+        throw const FormatException('Неверные сведения о файле');
+      }
+    }
+    return data;
+  }
+
+  static Future<Map<String, dynamic>> latest() async {
+    if (updateMirrorPublicKey.isEmpty) throw const FormatException('Резервный источник ещё не настроен');
+    final envelope = await jsonRequest(Uri.parse(await downloadUrl('/latest.json')));
+    return verify(envelope, updateMirrorPublicKey);
+  }
+}

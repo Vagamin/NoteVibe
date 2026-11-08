@@ -19,6 +19,36 @@ import 'app_test.dart' show makeServices;
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
 
+  testWidgets('update cards have the same width as other settings cards', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    tester.view.physicalSize = const Size(1266, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [servicesProvider.overrideWithValue(s)],
+      child: const NoteVibeApp(),
+    ));
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator).first).push(
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+    await tester.pumpAndSettle();
+    final autoSync = find.ancestor(of: find.text('Автосинхронизация'), matching: find.byType(Card)).first;
+    final autoUpdates = find.ancestor(of: find.text('Проверять обновления'), matching: find.byType(Card)).first;
+    final version = find.ancestor(of: find.textContaining('Текущая версия'), matching: find.byType(Card)).first;
+    await tester.ensureVisible(autoSync);
+    await tester.pumpAndSettle();
+    final expected = tester.getRect(autoSync);
+    await tester.ensureVisible(autoUpdates);
+    await tester.pumpAndSettle();
+    for (final card in [autoUpdates, version]) {
+      final actual = tester.getRect(card);
+      expect(actual.left, expected.left);
+      expect(actual.width, expected.width);
+    }
+  });
+
   const sizes = [Size(320, 640), Size(360, 740), Size(412, 915)];
   const scales = [1.0, 1.3];
 

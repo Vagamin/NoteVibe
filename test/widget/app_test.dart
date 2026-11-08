@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import 'package:notevibe/sync/sync_service.dart';
 import 'package:notevibe/ui/layout/home_screen.dart';
 import 'package:notevibe/ui/providers.dart';
 import 'package:notevibe/ui/editor/format_glyph.dart';
+import 'package:notevibe/ui/editor/note_editor.dart';
 import 'package:notevibe/ui/notes_list/notes_list.dart';
 
 Future<AppServices> makeServices() async {
@@ -48,6 +50,54 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+  testWidgets('wheel scrolling long code keeps scrollbar extent stable', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final lines = List.generate(180, (i) => 'print($i)').join('\n');
+    s.store.createNote(title: 'Длинный код', content: jsonEncode([
+      {'insert': lines},
+      {'insert': '\n', 'attributes': {'code-block': true}},
+    ]), plainText: '$lines\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Длинный код'));
+    await tester.pumpAndSettle();
+    final scroll = find.descendant(of: find.byType(NoteEditor), matching: find.byWidgetPredicate(
+      (w) => w is SingleChildScrollView && w.scrollDirection == Axis.vertical && w.controller != null,
+    )).first;
+    final controller = tester.widget<SingleChildScrollView>(scroll).controller!;
+    final extent = controller.position.maxScrollExtent;
+    expect(extent, greaterThan(1000));
+    final position = tester.getCenter(scroll);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: position);
+    for (var i = 0; i < 8; i++) {
+      final before = controller.offset;
+      await tester.sendEventToBinding(PointerScrollEvent(position: position, scrollDelta: const Offset(0, 160)));
+      await tester.pumpAndSettle();
+      expect(controller.offset, closeTo(before + 160, 1));
+      expect(controller.position.maxScrollExtent, closeTo(extent, 1));
+    }
+    await mouse.removePointer();
+  });
+  testWidgets('long note shows return-to-top button only after scrolling', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final text = List.generate(150, (i) => 'Строка $i').join('\n');
+    s.store.createNote(title: 'Длинная заметка', content: jsonEncode([{'insert': '$text\n'}]), plainText: '$text\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Длинная заметка'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('В начало заметки'), findsNothing);
+    final list = find.descendant(of: find.byType(NoteEditor), matching: find.byWidgetPredicate(
+      (w) => w is SingleChildScrollView && w.scrollDirection == Axis.vertical && w.controller != null,
+    ));
+    await tester.drag(list.first, const Offset(0, -650));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('В начало заметки'), findsOneWidget);
+    await tester.tap(find.byTooltip('В начало заметки'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('В начало заметки'), findsNothing);
+  });
   testWidgets('independent code blocks collapse without hiding ordinary text', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());

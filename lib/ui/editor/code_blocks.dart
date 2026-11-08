@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 import 'code_dialog.dart';
 
 const codeEmbedKey = 'notevibe-code';
+
+String codeBlockStateKey(String source, int occurrence) => '${sha256.convert(utf8.encode(source))}:$occurrence';
 
 /// Presentation-only embeds. Persisted documents keep standard Quill code lines.
 List<Map<String, dynamic>> expandCodeBlocks(List<dynamic> ops) {
@@ -38,9 +42,12 @@ List<Map<String, dynamic>> foldCodeBlocks(List<dynamic> ops) {
   final result = <Map<String, dynamic>>[];
   var pending = <Map<String, dynamic>>[];
   final code = StringBuffer();
+  final occurrences = <String, int>{};
   void flush() {
     if (code.isEmpty) return;
-    result.add({'insert': {codeEmbedKey: {'source': code.toString(), 'id': UniqueKey().toString()}}});
+    final source = code.toString();
+    final occurrence = occurrences.update(source, (value) => value + 1, ifAbsent: () => 0);
+    result.add({'insert': {codeEmbedKey: {'source': source, 'id': codeBlockStateKey(source, occurrence)}}});
     result.add({'insert': '\n'});
     code.clear();
   }
@@ -72,13 +79,18 @@ class CodeBlockBuilder extends EmbedBuilder {
   final Future<void> Function(EmbedContext) onEdit;
   final Future<void> Function(EmbedContext) onDelete;
   final VoidCallback onToggle;
-  const CodeBlockBuilder({required this.scale, required this.highlight, required this.onEdit, required this.onDelete, required this.onToggle});
+  final bool Function(String)? isCollapsed;
+  final void Function(String, bool)? onCollapsedChanged;
+  const CodeBlockBuilder({required this.scale, required this.highlight, required this.onEdit, required this.onDelete, required this.onToggle,
+    this.isCollapsed, this.onCollapsedChanged});
   @override
   String get key => codeEmbedKey;
   @override
   Widget build(BuildContext context, EmbedContext embedContext) {
     final data = embedContext.node.value.data as Map;
     return _CodeBlock(key: ValueKey(data['id']), source: data['source'] as String,
+      initiallyCollapsed: isCollapsed?.call(data['id'] as String) ?? false,
+      onCollapsedChanged: (value) => onCollapsedChanged?.call(data['id'] as String, value),
       scale: scale, highlight: highlight, onEdit: () => onEdit(embedContext), onDelete: () => onDelete(embedContext), onToggle: onToggle);
   }
 }
@@ -88,13 +100,16 @@ class _CodeBlock extends StatefulWidget {
   final double scale;
   final bool highlight;
   final VoidCallback onEdit, onDelete, onToggle;
-  const _CodeBlock({super.key, required this.source, required this.scale, required this.highlight, required this.onEdit, required this.onDelete, required this.onToggle});
+  final bool initiallyCollapsed;
+  final ValueChanged<bool> onCollapsedChanged;
+  const _CodeBlock({super.key, required this.source, required this.scale, required this.highlight, required this.onEdit, required this.onDelete, required this.onToggle,
+    required this.initiallyCollapsed, required this.onCollapsedChanged});
   @override
   State<_CodeBlock> createState() => _CodeBlockState();
 }
 
 class _CodeBlockState extends State<_CodeBlock> {
-  bool collapsed = false;
+  late bool collapsed = widget.initiallyCollapsed;
   Widget? _body;
   String? _language;
   @override
@@ -127,6 +142,7 @@ class _CodeBlockState extends State<_CodeBlock> {
             ),
             icon: Icon(collapsed ? Icons.chevron_right : Icons.expand_more), onPressed: () {
               setState(() => collapsed = !collapsed);
+              widget.onCollapsedChanged(collapsed);
               widget.onToggle();
               WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) widget.onToggle(); });
             }),

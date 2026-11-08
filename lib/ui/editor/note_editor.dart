@@ -17,6 +17,7 @@ import '../widgets/reminder_button.dart';
 import 'format_glyph.dart';
 import 'code_dialog.dart';
 import 'code_blocks.dart';
+import 'note_boundaries.dart';
 import '../theme/code_style.dart';
 import '../widgets/overflow_title_hint.dart';
 import 'dart:io';
@@ -46,6 +47,26 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   final _renderKey = GlobalKey<EditorState>();
   bool _caretPending = false;
   bool _hideCodeCaret = false;
+  Map<String, dynamic> _collapsedCode = {};
+  final _codeStateKeys = <String, String>{};
+
+  String _codeStateKey(String id) => _codeStateKeys.putIfAbsent(id, () {
+    final occurrences = <String, int>{};
+    for (final op in _quill.document.toDelta().toJson()) {
+      final insert = op['insert'];
+      if (insert is! Map || insert[codeEmbedKey] is! Map) continue;
+      final data = insert[codeEmbedKey] as Map;
+      final source = data['source'] as String;
+      final occurrence = occurrences.update(source, (value) => value + 1, ifAbsent: () => 0);
+      if (data['id'] == id) return codeBlockStateKey(source, occurrence);
+    }
+    return id;
+  });
+
+  void _rememberCodeState(String id, bool collapsed) {
+    _collapsedCode[_codeStateKey(id)] = collapsed;
+    _store.setSetting('editor_code_state_${widget.noteId}', jsonEncode(_collapsedCode));
+  }
 
   void _onEditorFocusChanged() {
     _updateCodeCaret();
@@ -167,8 +188,11 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     if (code == null || !mounted) return;
     final offset = _codeOffset(data['id']);
     if (offset == null) return;
+    final collapsed = _collapsedCode[_codeStateKey(data['id'] as String)] == true;
     _quill.replaceText(offset, 1, Embeddable(codeEmbedKey, {'source': code, 'id': data['id']}),
       TextSelection.collapsed(offset: offset));
+    _codeStateKeys.clear();
+    _rememberCodeState(data['id'] as String, collapsed);
     _onEdited();
     _save();
     setState(() {});
@@ -215,6 +239,12 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   }
 
   void _load() {
+    _codeStateKeys.clear();
+    try {
+      _collapsedCode = jsonDecode(_store.getSetting('editor_code_state_${widget.noteId}') ?? '{}') as Map<String, dynamic>;
+    } catch (_) {
+      _collapsedCode = {};
+    }
     final n = _store.getNote(widget.noteId);
     _note = n;
     _docSub?.cancel();
@@ -222,6 +252,13 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     Document doc;
     try {
       doc = Document.fromJson(foldCodeBlocks(jsonDecode(n?.content ?? emptyDeltaJson) as List));
+      for (final op in doc.toDelta().toJson()) {
+        final insert = op['insert'];
+        if (insert is Map && insert[codeEmbedKey] is Map) {
+          final id = insert[codeEmbedKey]['id'] as String;
+          _codeStateKeys[id] = id;
+        }
+      }
     } catch (_) {
       doc = Document()..insert(0, n?.plainText ?? '');
     }
@@ -467,7 +504,8 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                 )))),
                  if (Platform.isAndroid) ReminderButton(noteId: widget.noteId, title: _title.text, compact: true),
                 ]),
-                 const SizedBox(height: 10),
+                 NoteBoundary(style: _store.getSetting('note_boundary_style') ?? 'full',
+                   edges: _store.getSetting('note_boundary_edges') ?? 'both', start: true),
                  if (note.isVoice)
                   VoicePanel(noteId: widget.noteId)
                 else
@@ -481,7 +519,9 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                         embedBuilders: [CodeBlockBuilder(
                           scale: ref.watch(noteFontSizeProvider).scale,
                           highlight: _store.getSetting('code_highlight') != 'false',
-                          onEdit: _editEmbeddedCode, onDelete: _deleteEmbeddedCode,
+                           onEdit: _editEmbeddedCode, onDelete: _deleteEmbeddedCode,
+                           isCollapsed: (id) => _collapsedCode[_codeStateKey(id)] == true,
+                           onCollapsedChanged: _rememberCodeState,
                           onToggle: _hideCaretForCode)],
                        showCodeBlockLineNumbers: false,
                       scrollable: false,
@@ -502,12 +542,13 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                         ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), decoration: TextDecoration.lineThrough)
                         : const TextStyle(),
                       placeholder: 'Начните писать…',
-                      padding: const EdgeInsets.only(bottom: 120),
+                      padding: const EdgeInsets.only(bottom: 16),
                        customStyles: _styles(context),
                      ),
                    ),
                    ]),
-                const SizedBox(height: 16),
+                 NoteBoundary(style: _store.getSetting('note_boundary_style') ?? 'full',
+                   edges: _store.getSetting('note_boundary_edges') ?? 'both', start: false),
                  AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
                ]),
             )),

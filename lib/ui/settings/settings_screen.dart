@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import '../editor/note_boundaries.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -90,6 +91,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.read(syncProvider).rename(n);
   }
 
+  Future<void> _pickBoundarySetting(String key, String title, Map<String, String> options, String fallback) async {
+    final current = _storeSetting(key) ?? fallback;
+    final picked = await showDialog<String>(context: context, builder: (c) => SimpleDialog(
+      title: Text(title),
+      children: [for (final option in options.entries)
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(c, option.key),
+          child: Row(children: [Expanded(child: Text(option.value)),
+            if (option.key == current) const Icon(Icons.check, size: 20)]),
+        )],
+    ));
+    if (picked == null || !mounted) return;
+    ref.read(storeProvider).setSetting(key, picked);
+    setState(() {});
+  }
+
+  String? _storeSetting(String key) => ref.read(storeProvider).getSetting(key);
+
   Future<void> _pickSaveDir() async {
     final dir = await FilePicker.getDirectoryPath(dialogTitle: 'Папка для файлов');
     if (dir == null) return;
@@ -149,6 +168,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (picked != null) ref.read(previewLinesProvider.notifier).set(picked);
             },
           ),
+          _SettingsTile(
+            leading: const Icon(Icons.horizontal_rule),
+            title: const Text('Линии границ заметки'),
+            subtitle: Text(noteBoundaryStyles[ref.watch(storeProvider).getSetting('note_boundary_style')] ?? noteBoundaryStyles['full']!),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () => _pickBoundarySetting('note_boundary_style', 'Линии границ заметки', noteBoundaryStyles, 'full'),
+          ),
+          if (ref.watch(storeProvider).getSetting('note_boundary_style') != 'off')
+            _SettingsTile(
+              leading: const Icon(Icons.vertical_align_center),
+              title: const Text('Какие границы показывать'),
+              subtitle: Text(noteBoundaryEdges[ref.watch(storeProvider).getSetting('note_boundary_edges')] ?? noteBoundaryEdges['both']!),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              onTap: () => _pickBoundarySetting('note_boundary_edges', 'Границы заметки', noteBoundaryEdges, 'both'),
+            ),
           SettingsSwitchCard(icon: Icons.code, title: const Text('Блоки кода'),
             subtitle: const Text('Редактирование и копирование с сохранением отступов.'),
             value: ref.watch(storeProvider).getSetting('code_blocks') != 'false',

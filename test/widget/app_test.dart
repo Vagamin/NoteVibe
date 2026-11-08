@@ -50,6 +50,54 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+  testWidgets('code collapse state survives reopening without changing note content', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final note = s.store.createNote(title: 'Запомнить код', content: jsonEncode([
+      {'insert': 'print(1)\n', 'attributes': {'code-block': true}},
+      {'insert': 'Между блоками\n'},
+      {'insert': 'print(2)\n', 'attributes': {'code-block': true}},
+    ]), plainText: 'print(1)\nМежду блоками\nprint(2)\n');
+    final original = s.store.getNote(note.id)!.content;
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Запомнить код'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Свернуть код').first);
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Запомнить код'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Развернуть код'), findsOneWidget);
+    expect(find.byTooltip('Свернуть код'), findsOneWidget);
+    expect(s.store.getNote(note.id)!.content, original);
+  });
+
+  for (final kind in [PointerDeviceKind.touch, PointerDeviceKind.mouse]) {
+    testWidgets('tap places caret at clicked text position: $kind', (tester) async {
+      late AppServices s;
+      await tester.runAsync(() async => s = await makeServices());
+      s.store.createNote(title: 'Положение курсора', content: jsonEncode([
+        {'insert': 'Первая строка\nВторая строка\nТретья строка\n'},
+      ]), plainText: 'Первая строка\nВторая строка\nТретья строка\n');
+      await pumpApp(tester, s);
+      await tester.tap(find.text('Положение курсора'));
+      await tester.pumpAndSettle();
+      final editor = tester.widget<QuillEditor>(find.byType(QuillEditor));
+      final render = editor.config.editorKey!.currentState!.renderEditor;
+      for (final offset in [3, 18, 32]) {
+        final rect = render.getLocalRectForCaret(TextPosition(offset: offset));
+        final position = render.localToGlobal(Offset(rect.left + 1, rect.center.dy));
+        final gesture = await tester.startGesture(position, kind: kind);
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(editor.controller.selection.extentOffset, offset);
+        expect(editor.focusNode.hasFocus, isTrue);
+        await tester.pump(const Duration(milliseconds: 600)); // Not a double/triple tap.
+      }
+    });
+  }
   testWidgets('wheel scrolling long code keeps scrollbar extent stable', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());

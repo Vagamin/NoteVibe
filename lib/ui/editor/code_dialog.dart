@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// Reopening a note should not tokenize the same code again. Bound retained
+// source size, not the amount of code highlighted (large blocks still work).
+final _highlightCache = <(String, bool, TextStyle?), TextSpan>{};
+int _highlightCacheCharacters = 0;
+
 /// Conservative hints only: language detection never changes source text.
 String detectCodeLanguage(String text) {
   if (RegExp(r'\bfn\s+\w+\s*[(<]|\b(?:println|vec|format)!\s*\(|\b(?:impl|trait)\s+\w+|\blet\s+mut\b').hasMatch(text)) return 'Rust';
@@ -36,6 +41,12 @@ class CodeTextController extends TextEditingController {
 
 TextSpan highlightedCode(BuildContext context, String text, TextStyle? style) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final key = (text, dark, style);
+    final cached = _highlightCache.remove(key);
+    if (cached != null) {
+      _highlightCache[key] = cached;
+      return cached;
+    }
     final pattern = RegExp(r'''(//[^\n]*|\#[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:class|def|return|if|else|for|while|import|from|const|final|var|let|function|void|async|await|true|false|null|None|SELECT|FROM|WHERE)\b|\b\d+(?:\.\d+)?\b)''');
     final spans = <TextSpan>[];
     var offset = 0;
@@ -50,7 +61,18 @@ TextSpan highlightedCode(BuildContext context, String text, TextStyle? style) {
       offset = match.end;
     }
     spans.add(TextSpan(text: text.substring(offset)));
-    return TextSpan(style: style, children: spans);
+    final result = TextSpan(style: style, children: spans);
+    if (text.length <= 1000000) {
+      while (_highlightCache.isNotEmpty &&
+          (_highlightCache.length >= 8 || _highlightCacheCharacters + text.length > 1000000)) {
+        final oldest = _highlightCache.keys.first;
+        _highlightCacheCharacters -= oldest.$1.length;
+        _highlightCache.remove(oldest);
+      }
+      _highlightCache[key] = result;
+      _highlightCacheCharacters += text.length;
+    }
+    return result;
 }
 
 Future<String?> editCode(BuildContext context, String source, {required bool highlight, double fontScale = 1.0}) async {

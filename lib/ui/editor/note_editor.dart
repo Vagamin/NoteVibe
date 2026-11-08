@@ -48,6 +48,22 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   bool _caretPending = false;
   bool _hideCodeCaret = false;
   bool _canJump = false;
+  bool _codePointerInteraction = false;
+
+  void _copySelectedText() {
+    final selection = _quill.selection;
+    if (!selection.isValid || selection.isCollapsed) return;
+    final selected = _quill.document.toDelta().slice(selection.start, selection.end).toJson();
+    final text = StringBuffer();
+    for (final op in selected) {
+      final insert = op['insert'];
+      if (insert is String) text.write(insert);
+      if (insert is Map && insert[codeEmbedKey] is Map) {
+        text.write(insert[codeEmbedKey]['source']);
+      }
+    }
+    Clipboard.setData(ClipboardData(text: text.toString()));
+  }
   Map<String, dynamic> _collapsedCode = {};
   final _codeStateKeys = <String, String>{};
 
@@ -426,9 +442,43 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
           (op['attributes'] as Map?)?['code-block'] != null;
     });
 
-    final toolbar = FormatToolbar(controller: _quill, large: widget.compact,
+    final formatting = FormatToolbar(controller: _quill, large: widget.compact,
       onRemoveCode: hasCode ? _removeCode : null,
       onCode: _store.getSetting('code_blocks') != 'false' ? _editCode : null);
+    final toolbar = AnimatedBuilder(
+      animation: _scroll,
+      builder: (context, _) {
+        final visible = _scroll.hasClients && _canJump;
+        final toEnd = !_scroll.hasClients || _scroll.offset <= 32;
+        final scheme = Theme.of(context).colorScheme;
+        final size = widget.compact ? 40.0 : 32.0;
+        return SizedBox(height: 50, child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(child: formatting),
+          if (visible) ...[
+            const SizedBox(width: 6),
+            SizedBox(width: size + 4, child: Material(
+              color: Theme.of(context).cardTheme.color ?? scheme.surfaceContainerLow,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5))),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                canRequestFocus: false,
+                onTap: () {
+                  _editorFocus.unfocus();
+                  _scroll.animateTo(toEnd ? _scroll.position.maxScrollExtent : 0,
+                    duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+                },
+                child: Tooltip(
+                  message: toEnd ? 'В конец заметки' : 'В начало заметки',
+                  child: Center(child: Icon(toEnd ? Icons.vertical_align_bottom : Icons.vertical_align_top,
+                    size: 24, color: scheme.onSurfaceVariant)),
+                ),
+              ),
+            )),
+          ],
+        ]));
+      },
+    );
 
     return CallbackShortcuts(
       bindings: {
@@ -475,7 +525,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               actions: [TextButton(onPressed: _save, child: const Text('Повторить'))],
             ),
           Expanded(
-            child: Stack(children: [Positioned.fill(child: NotificationListener<ScrollMetricsNotification>(
+            child: Column(children: [Expanded(child: NotificationListener<ScrollMetricsNotification>(
               onNotification: (notification) {
                 if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) return false;
                 final canJump = notification.metrics.maxScrollExtent > 1;
@@ -525,14 +575,23 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                     controller: _quill,
                     focusNode: _editorFocus,
                     scrollController: _quillScroll,
-                      config: QuillEditorConfig(
+                       config: QuillEditorConfig(
+                         onTapDown: (_, _) => _codePointerInteraction,
+                         onTapUp: (_, _) => _codePointerInteraction,
+                         customActions: {
+                           CopySelectionTextIntent: CallbackAction<CopySelectionTextIntent>(
+                             onInvoke: (_) { _copySelectedText(); return null; }),
+                         },
                         showCursor: !_hideCodeCaret,
                         embedBuilders: [CodeBlockBuilder(
                           scale: ref.watch(noteFontSizeProvider).scale,
                           highlight: _store.getSetting('code_highlight') != 'false',
                            onEdit: _editEmbeddedCode, onDelete: _deleteEmbeddedCode,
                            isCollapsed: (id) => _collapsedCode[_codeStateKey(id)] == true,
-                           onCollapsedChanged: _rememberCodeState,
+                            onCollapsedChanged: _rememberCodeState,
+                            onPointerInteraction: (active) {
+                              if (mounted) _codePointerInteraction = active;
+                            },
                           onToggle: _hideCaretForCode)],
                        showCodeBlockLineNumbers: false,
                       scrollable: false,
@@ -563,24 +622,6 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                  AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
                ]),
             ))),
-              Positioned(right: 16, bottom: 16, child: AnimatedBuilder(
-                animation: _scroll,
-                builder: (context, _) {
-                  final visible = _scroll.hasClients && _canJump;
-                  if (!visible) return const SizedBox.shrink();
-                  final toEnd = _scroll.offset <= 32;
-                  return FloatingActionButton.small(
-                    heroTag: null,
-                    tooltip: toEnd ? 'В конец заметки' : 'В начало заметки',
-                    onPressed: () {
-                      _editorFocus.unfocus();
-                      _scroll.animateTo(toEnd ? _scroll.position.maxScrollExtent : 0,
-                        duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
-                    },
-                    child: Icon(toEnd ? Icons.vertical_align_bottom : Icons.vertical_align_top),
-                  );
-                },
-              )),
             ]),
           ),
           if (widget.compact && !note.isVoice)

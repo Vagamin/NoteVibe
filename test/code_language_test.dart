@@ -2,6 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notevibe/ui/editor/code_dialog.dart';
 
 void main() {
+  test('cold detection scans long brace-free Python without quadratic retries', () {
+    final source = 'def cold_start_regression():\n${List.generate(12000, (i) => '    print("line $i")').join('\n')}';
+    final watch = Stopwatch()..start();
+    expect(detectCodeLanguage(source), 'Python');
+    watch.stop();
+    expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
   final examples = <String, String>{
     'Rust': 'fn main() { let value = 42; println!("{}", value); }',
     'Go': 'package main\nfunc main() { fmt.Println("Hello") }',

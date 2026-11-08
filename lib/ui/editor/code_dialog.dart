@@ -38,7 +38,9 @@ String _detectCodeLanguage(String text) {
   if (RegExp(r'(^|\n)\s*(?:require_relative\s|puts\s|class\s+\w+\s*<)|\bdo\s*\|[^|]+\|').hasMatch(text)) return 'Ruby';
   if (RegExp(r'\b(?:Write-Host|Write-Output|Get-ChildItem|Get-Process|Set-Location|param\s*\()|\$env:', caseSensitive: false).hasMatch(text)) return 'PowerShell';
   if (RegExp(r'^#![^\n]*\b(?:bash|sh|zsh)\b|(^|\n)\s*(?:if\s+\[|then\s*$|fi\s*$|export\s+\w+=)|\becho\s+[\x22\x27$]', multiLine: true).hasMatch(text)) return 'Bash/Shell';
-  if (RegExp(r'[^{}]+\{\s*(?:--[\w-]+|color|background(?:-color)?|display|margin(?:-\w+)?|padding(?:-\w+)?|font-[\w-]+|width|height)\s*:', multiLine: true).hasMatch(text)) return 'CSS';
+  // One preceding character is enough to establish a selector. A greedy +
+  // here retries the whole remaining source at each position without a brace.
+  if (RegExp(r'[^{}]\{\s*(?:--[\w-]+|color|background(?:-color)?|display|margin(?:-\w+)?|padding(?:-\w+)?|font-[\w-]+|width|height)\s*:', multiLine: true).hasMatch(text)) return 'CSS';
   if (RegExp(r'(^|\n)\s*(def |from \w+ import |import \w+\s*\n|print\()').hasMatch(text)) return 'Python';
   if (RegExp(r'\b(SELECT\s+.+\s+FROM|CREATE TABLE|INSERT INTO)\b', caseSensitive: false, dotAll: true).hasMatch(text)) return 'SQL';
   if (RegExp(r'\b(interface |type \w+\s*=)|:\s*(string|number|boolean)\b').hasMatch(text)) return 'TypeScript';

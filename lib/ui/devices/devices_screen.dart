@@ -1,3 +1,4 @@
+import '../widgets/rounded_popup_menu_item.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -177,8 +178,8 @@ class DevicesScreen extends ConsumerWidget {
                     }
                   },
                   itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'addr', child: Row(children: [Icon(Icons.lan_outlined, size: 20), SizedBox(width: 12), Text('Указать IP вручную')])),
-                    PopupMenuItem(value: 'unpair', child: Row(children: [Icon(Icons.link_off, size: 20), SizedBox(width: 12), Text('Отвязать')])),
+                    RoundedPopupMenuItem(value: 'addr', child: Row(children: [Icon(Icons.lan_outlined, size: 20), SizedBox(width: 12), Text('Указать IP вручную')])),
+                    RoundedPopupMenuItem(value: 'unpair', child: Row(children: [Icon(Icons.link_off, size: 20), SizedBox(width: 12), Text('Отвязать')])),
                   ],
                 ),
               ),

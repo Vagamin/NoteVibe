@@ -50,6 +50,53 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+  testWidgets('toggling code never requests the software keyboard', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Клавиатура и код', content: jsonEncode([
+      {'insert': 'print(1)\n', 'attributes': {'code-block': true}},
+      {'insert': 'Текст\n'},
+    ]), plainText: 'print(1)\nТекст\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Клавиатура и код'));
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 4; i++) {
+      tester.testTextInput.log.clear();
+      await tester.tap(find.byTooltip(i.isEven ? 'Свернуть код' : 'Развернуть код'));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.log.where((call) => call.method == 'TextInput.show'), isEmpty);
+      expect(tester.widget<QuillEditor>(find.byType(QuillEditor)).focusNode.hasFocus, isFalse);
+    }
+  });
+  testWidgets('Ctrl+C copies selected ordinary text and embedded code', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Копирование', content: jsonEncode([
+      {'insert': 'До\n'},
+      {'insert': '\tprint(1)\n', 'attributes': {'code-block': true}},
+      {'insert': 'После\n'},
+    ]), plainText: 'До\n\tprint(1)\nПосле\n');
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Копирование'));
+    await tester.pumpAndSettle();
+    final editor = tester.widget<QuillEditor>(find.byType(QuillEditor));
+    editor.focusNode.requestFocus();
+    editor.controller.updateSelection(TextSelection(baseOffset: 0, extentOffset: editor.controller.document.length - 1), ChangeSource.local);
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(copied, contains('До\n\tprint(1)'));
+    expect(copied, contains('После'));
+    expect(copied, isNot(contains('\uFFFC')));
+  });
   testWidgets('code collapse state survives reopening without changing note content', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());
@@ -137,6 +184,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byTooltip('В начало заметки'), findsNothing);
     expect(find.byTooltip('В конец заметки'), findsOneWidget);
+    final viewport = find.descendant(of: find.byType(NoteEditor), matching: find.byWidgetPredicate(
+      (w) => w is SingleChildScrollView && w.scrollDirection == Axis.vertical && w.controller != null,
+    )).first;
+    final navigationRect = tester.getRect(find.byTooltip('В конец заметки'));
+    final toolbarRect = tester.getRect(find.byType(FormatToolbar));
+    expect(navigationRect.left, greaterThanOrEqualTo(toolbarRect.right));
+    expect(navigationRect.center.dy, closeTo(toolbarRect.center.dy, 1));
+    final navigationMaterial = find.ancestor(of: find.byTooltip('В конец заметки'), matching: find.byWidgetPredicate(
+      (w) => w is Material && w.shape is RoundedRectangleBorder &&
+        (w.shape as RoundedRectangleBorder).borderRadius == BorderRadius.circular(18),
+    )).first;
+    expect(tester.getRect(navigationMaterial).top, closeTo(toolbarRect.top, 0.1));
+    expect(tester.getRect(navigationMaterial).bottom, closeTo(toolbarRect.bottom, 0.1));
+    expect(navigationRect.overlaps(tester.getRect(viewport)), isFalse);
     await tester.tap(find.byTooltip('В конец заметки'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('В начало заметки'), findsOneWidget);

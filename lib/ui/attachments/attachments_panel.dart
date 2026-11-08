@@ -1,3 +1,4 @@
+import '../widgets/rounded_popup_menu_item.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -446,14 +447,14 @@ class _AttachmentTile extends StatelessWidget {
               }
             },
             itemBuilder: (_) => [
-              if (onRename != null) const PopupMenuItem(value: 'rename', child: Text('Изменить название')),
-              if (present) const PopupMenuItem(value: 'open', child: Text('Открыть файл')),
-              if (present) const PopupMenuItem(value: 'save', child: Text('Сохранить копию')),
-              if (present) const PopupMenuItem(value: 'copy', child: Text('Копировать в буфер обмена')),
+              if (onRename != null) const RoundedPopupMenuItem(value: 'rename', child: Text('Изменить название')),
+              if (present) const RoundedPopupMenuItem(value: 'open', child: Text('Открыть файл')),
+              if (present) const RoundedPopupMenuItem(value: 'save', child: Text('Сохранить копию')),
+              if (present) const RoundedPopupMenuItem(value: 'copy', child: Text('Копировать в буфер обмена')),
               if (isDesktop && hasSavedCopy)
-                const PopupMenuItem(value: 'location', child: Text('Показать в папке')),
-              if (present && remoteHeld) const PopupMenuItem(value: 'free', child: Text('Освободить место')),
-              const PopupMenuItem(value: 'delete', child: Text('Удалить вложение')),
+                const RoundedPopupMenuItem(value: 'location', child: Text('Показать в папке')),
+              if (present && remoteHeld) const RoundedPopupMenuItem(value: 'free', child: Text('Освободить место')),
+              const RoundedPopupMenuItem(value: 'delete', child: Text('Удалить вложение')),
             ],
           ),
         ]),

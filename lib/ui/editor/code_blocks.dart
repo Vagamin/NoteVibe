@@ -1,3 +1,4 @@
+import '../widgets/rounded_popup_menu_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -90,19 +91,24 @@ class CodeBlockBuilder extends EmbedBuilder {
   final Future<void> Function(EmbedContext) onEdit;
   final Future<void> Function(EmbedContext) onDelete;
   final VoidCallback onToggle;
+  final ValueChanged<bool>? onPointerInteraction;
   final bool Function(String)? isCollapsed;
   final void Function(String, bool)? onCollapsedChanged;
   const CodeBlockBuilder({required this.scale, required this.highlight, required this.onEdit, required this.onDelete, required this.onToggle,
-    this.isCollapsed, this.onCollapsedChanged});
+    this.isCollapsed, this.onCollapsedChanged, this.onPointerInteraction});
   @override
   String get key => codeEmbedKey;
   @override
   Widget build(BuildContext context, EmbedContext embedContext) {
     final data = embedContext.node.value.data as Map;
-    return _CodeBlock(key: ValueKey(data['id']), source: data['source'] as String,
+    return Listener(
+      onPointerDown: (_) => onPointerInteraction?.call(true),
+      onPointerUp: (_) => WidgetsBinding.instance.addPostFrameCallback((_) => onPointerInteraction?.call(false)),
+      onPointerCancel: (_) => onPointerInteraction?.call(false),
+      child: _CodeBlock(key: ValueKey(data['id']), source: data['source'] as String,
       initiallyCollapsed: isCollapsed?.call(data['id'] as String) ?? false,
       onCollapsedChanged: (value) => onCollapsedChanged?.call(data['id'] as String, value),
-      scale: scale, highlight: highlight, onEdit: () => onEdit(embedContext), onDelete: () => onDelete(embedContext), onToggle: onToggle);
+      scale: scale, highlight: highlight, onEdit: () => onEdit(embedContext), onDelete: () => onDelete(embedContext), onToggle: onToggle));
   }
 }
 
@@ -166,9 +172,9 @@ class _CodeBlockState extends State<_CodeBlock> {
               if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Код скопирован')));
             }
           }, itemBuilder: (_) => const [
-            PopupMenuItem(value: 'edit', child: Text('Редактировать код')),
-            PopupMenuItem(value: 'copy', child: Text('Копировать код')),
-            PopupMenuItem(value: 'delete', child: Text('Удалить блок кода')),
+            RoundedPopupMenuItem(value: 'edit', child: Text('Редактировать код')),
+            RoundedPopupMenuItem(value: 'copy', child: Text('Копировать код')),
+            RoundedPopupMenuItem(value: 'delete', child: Text('Удалить блок кода')),
           ]),
         ]),
         if (!collapsed) _body ??= RepaintBoundary(child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),

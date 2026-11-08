@@ -92,7 +92,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pickBoundarySetting(String key, String title, Map<String, String> options, String fallback) async {
-    final current = _storeSetting(key) ?? fallback;
+    final current = key == 'note_boundary_edges' && _storeSetting('note_boundary_style') == 'off'
+      ? 'off' : _storeSetting(key) ?? fallback;
     final picked = await showDialog<String>(context: context, builder: (c) => SimpleDialog(
       title: Text(title),
       children: [for (final option in options.entries)
@@ -104,6 +105,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ));
     if (picked == null || !mounted) return;
     ref.read(storeProvider).setSetting(key, picked);
+    if (key == 'note_boundary_edges') ref.read(storeProvider).setSetting('note_boundary_style', 'full');
     setState(() {});
   }
 
@@ -170,19 +172,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           _SettingsTile(
             leading: const Icon(Icons.horizontal_rule),
-            title: const Text('Линии границ заметки'),
-            subtitle: Text(noteBoundaryStyles[ref.watch(storeProvider).getSetting('note_boundary_style')] ?? noteBoundaryStyles['full']!),
+            title: const Text('Границы заметки'),
+            subtitle: Text(ref.watch(storeProvider).getSetting('note_boundary_style') == 'off'
+              ? 'Отключены' : noteBoundaryEdges[ref.watch(storeProvider).getSetting('note_boundary_edges')] ?? noteBoundaryEdges['both']!),
             trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => _pickBoundarySetting('note_boundary_style', 'Линии границ заметки', noteBoundaryStyles, 'full'),
+            onTap: () async {
+              await _pickBoundarySetting('note_boundary_edges', 'Границы заметки', noteBoundaryEdges, 'both');
+            },
           ),
-          if (ref.watch(storeProvider).getSetting('note_boundary_style') != 'off')
-            _SettingsTile(
-              leading: const Icon(Icons.vertical_align_center),
-              title: const Text('Какие границы показывать'),
-              subtitle: Text(noteBoundaryEdges[ref.watch(storeProvider).getSetting('note_boundary_edges')] ?? noteBoundaryEdges['both']!),
-              trailing: const Icon(Icons.chevron_right, size: 20),
-              onTap: () => _pickBoundarySetting('note_boundary_edges', 'Границы заметки', noteBoundaryEdges, 'both'),
-            ),
           SettingsSwitchCard(icon: Icons.code, title: const Text('Блоки кода'),
             subtitle: const Text('Редактирование и копирование с сохранением отступов.'),
             value: ref.watch(storeProvider).getSetting('code_blocks') != 'false',

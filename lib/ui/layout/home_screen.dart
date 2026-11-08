@@ -1,3 +1,4 @@
+import '../widgets/rounded_popup_menu_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -256,10 +257,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             Navigator.push(context, MaterialPageRoute(builder: (_) => page));
           },
           itemBuilder: (_) => const [
-            PopupMenuItem(value: 'archive', child: _HomeMenuLabel(icon: Icons.archive_outlined, text: 'Архив')),
-            PopupMenuItem(value: 'trash', child: _HomeMenuLabel(icon: Icons.delete_outline, text: 'Корзина')),
-            PopupMenuItem(value: 'devices', child: _HomeMenuLabel(icon: Icons.devices_outlined, text: 'Устройства')),
-            PopupMenuItem(value: 'settings', child: _HomeMenuLabel(icon: Icons.settings_outlined, text: 'Настройки')),
+            RoundedPopupMenuItem(value: 'archive', child: _HomeMenuLabel(icon: Icons.archive_outlined, text: 'Архив')),
+            RoundedPopupMenuItem(value: 'trash', child: _HomeMenuLabel(icon: Icons.delete_outline, text: 'Корзина')),
+            RoundedPopupMenuItem(value: 'devices', child: _HomeMenuLabel(icon: Icons.devices_outlined, text: 'Устройства')),
+            RoundedPopupMenuItem(value: 'settings', child: _HomeMenuLabel(icon: Icons.settings_outlined, text: 'Настройки')),
           ],
         ),
       ],

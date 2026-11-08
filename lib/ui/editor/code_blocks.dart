@@ -55,6 +55,17 @@ List<Map<String, dynamic>> foldCodeBlocks(List<dynamic> ops) {
     final op = Map<String, dynamic>.from(raw as Map);
     final text = op['insert'];
     if (text is! String) { flush(); result.addAll(pending); pending = []; result.add(op); continue; }
+    // A Quill operation often contains thousands of complete lines. Keep it
+    // whole instead of allocating a map and substring for every single line.
+    if (pending.isEmpty && text.endsWith('\n')) {
+      if ((op['attributes'] as Map?)?['code-block'] != null) {
+        code.write(text);
+      } else {
+        flush();
+        result.add(op);
+      }
+      continue;
+    }
     var start = 0;
     for (var i = 0; i < text.length; i++) {
       if (text[i] != '\n') continue;

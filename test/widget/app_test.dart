@@ -127,7 +127,7 @@ void main() {
     }
     await mouse.removePointer();
   });
-  testWidgets('long note shows return-to-top button only after scrolling', (tester) async {
+  testWidgets('long note navigation button switches between end and start', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());
     final text = List.generate(150, (i) => 'Строка $i').join('\n');
@@ -136,6 +136,13 @@ void main() {
     await tester.tap(find.text('Длинная заметка'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('В начало заметки'), findsNothing);
+    expect(find.byTooltip('В конец заметки'), findsOneWidget);
+    await tester.tap(find.byTooltip('В конец заметки'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('В начало заметки'), findsOneWidget);
+    await tester.tap(find.byTooltip('В начало заметки'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('В конец заметки'), findsOneWidget);
     final list = find.descendant(of: find.byType(NoteEditor), matching: find.byWidgetPredicate(
       (w) => w is SingleChildScrollView && w.scrollDirection == Axis.vertical && w.controller != null,
     ));
@@ -145,6 +152,7 @@ void main() {
     await tester.tap(find.byTooltip('В начало заметки'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('В начало заметки'), findsNothing);
+    expect(find.byTooltip('В конец заметки'), findsOneWidget);
   });
   testWidgets('independent code blocks collapse without hiding ordinary text', (tester) async {
     late AppServices s;

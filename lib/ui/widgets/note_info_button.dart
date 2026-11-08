@@ -7,7 +7,8 @@ class NoteInfoButton extends StatelessWidget {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? content;
-  const NoteInfoButton({super.key, required this.createdAt, required this.updatedAt, this.content});
+  final String Function()? contentBuilder;
+  const NoteInfoButton({super.key, required this.createdAt, required this.updatedAt, this.content, this.contentBuilder});
 
   @override
   Widget build(BuildContext context) => IconButton(
@@ -17,7 +18,7 @@ class NoteInfoButton extends StatelessWidget {
       context: context,
       builder: (context) {
         final format = DateFormat('d MMM yyyy, HH:mm', 'ru');
-        final codeLines = noteLines(content ?? '', '')
+        final codeLines = noteLines(contentBuilder?.call() ?? content ?? '', '')
           .where((line) => line.attributes['code-block'] != null).toList();
         return AlertDialog(
           title: const Text('Сведения о заметке'),

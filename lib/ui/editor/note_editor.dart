@@ -47,6 +47,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   final _renderKey = GlobalKey<EditorState>();
   bool _caretPending = false;
   bool _hideCodeCaret = false;
+  bool _canJump = false;
   Map<String, dynamic> _collapsedCode = {};
   final _codeStateKeys = <String, String>{};
 
@@ -419,11 +420,14 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       return const Center(child: Text('Заметка удалена'));
     }
     final hasConflict = _store.conflictsFor(widget.noteId).isNotEmpty;
-    final codeLines = noteLines(jsonEncode(expandCodeBlocks(_quill.document.toDelta().toJson())), '')
-      .where((line) => line.attributes['code-block'] != null).toList();
+    final hasCode = _quill.document.toDelta().toJson().any((op) {
+      final insert = op['insert'];
+      return (insert is Map && insert.containsKey(codeEmbedKey)) ||
+          (op['attributes'] as Map?)?['code-block'] != null;
+    });
 
     final toolbar = FormatToolbar(controller: _quill, large: widget.compact,
-      onRemoveCode: codeLines.isNotEmpty ? _removeCode : null,
+      onRemoveCode: hasCode ? _removeCode : null,
       onCode: _store.getSetting('code_blocks') != 'false' ? _editCode : null);
 
     return CallbackShortcuts(
@@ -444,7 +448,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   onPressed: () => addNoteAttachments(context, ref, widget.noteId),
                 ),
                 NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt,
-                  content: jsonEncode(expandCodeBlocks(_quill.document.toDelta().toJson()))),
+                  contentBuilder: () => jsonEncode(expandCodeBlocks(_quill.document.toDelta().toJson()))),
                 IconButton(
                   tooltip: note.important ? 'Снять отметку «важное»' : 'Отметить как важное',
                   icon: Icon(note.important ? Icons.star : Icons.star_outline,
@@ -471,7 +475,14 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
               actions: [TextButton(onPressed: _save, child: const Text('Повторить'))],
             ),
           Expanded(
-            child: Stack(children: [Positioned.fill(child: SingleChildScrollView(
+            child: Stack(children: [Positioned.fill(child: NotificationListener<ScrollMetricsNotification>(
+              onNotification: (notification) {
+                if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) return false;
+                final canJump = notification.metrics.maxScrollExtent > 1;
+                if (_canJump != canJump) setState(() => _canJump = canJump);
+                return false;
+              },
+              child: SingleChildScrollView(
               controller: _scroll,
               padding: EdgeInsets.symmetric(horizontal: widget.compact ? 12 : 24, vertical: 12),
               // The editor is already laid out in full. A lazy ListView estimates
@@ -551,20 +562,22 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                    edges: _store.getSetting('note_boundary_edges') ?? 'both', start: false),
                  AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
                ]),
-            )),
+            ))),
               Positioned(right: 16, bottom: 16, child: AnimatedBuilder(
                 animation: _scroll,
                 builder: (context, _) {
-                  final visible = _scroll.hasClients && _scroll.offset > 300;
+                  final visible = _scroll.hasClients && _canJump;
                   if (!visible) return const SizedBox.shrink();
+                  final toEnd = _scroll.offset <= 32;
                   return FloatingActionButton.small(
                     heroTag: null,
-                    tooltip: 'В начало заметки',
+                    tooltip: toEnd ? 'В конец заметки' : 'В начало заметки',
                     onPressed: () {
                       _editorFocus.unfocus();
-                      _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+                      _scroll.animateTo(toEnd ? _scroll.position.maxScrollExtent : 0,
+                        duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
                     },
-                    child: const Icon(Icons.vertical_align_top),
+                    child: Icon(toEnd ? Icons.vertical_align_bottom : Icons.vertical_align_top),
                   );
                 },
               )),

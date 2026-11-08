@@ -5,9 +5,31 @@ import 'package:flutter/services.dart';
 // source size, not the amount of code highlighted (large blocks still work).
 final _highlightCache = <(String, bool, TextStyle?), TextSpan>{};
 int _highlightCacheCharacters = 0;
+final _languageCache = <String, String>{};
+int _languageCacheCharacters = 0;
 
 /// Conservative hints only: language detection never changes source text.
 String detectCodeLanguage(String text) {
+  final cached = _languageCache.remove(text);
+  if (cached != null) {
+    _languageCache[text] = cached;
+    return cached;
+  }
+  final result = _detectCodeLanguage(text);
+  if (text.length <= 1000000) {
+    while (_languageCache.isNotEmpty &&
+        (_languageCache.length >= 16 || _languageCacheCharacters + text.length > 1000000)) {
+      final oldest = _languageCache.keys.first;
+      _languageCacheCharacters -= oldest.length;
+      _languageCache.remove(oldest);
+    }
+    _languageCache[text] = result;
+    _languageCacheCharacters += text.length;
+  }
+  return result;
+}
+
+String _detectCodeLanguage(String text) {
   if (RegExp(r'\bfn\s+\w+\s*[(<]|\b(?:println|vec|format)!\s*\(|\b(?:impl|trait)\s+\w+|\blet\s+mut\b').hasMatch(text)) return 'Rust';
   if (RegExp(r'\bfunc\s+(?:\([^)]*\)\s*)?\w+\s*\(|\bfmt\.(?:Print|Sprint)|\bpackage\s+main\b').hasMatch(text)) return 'Go';
   if (RegExp(r'\bfun\s+\w+\s*\(|\b(?:data|sealed)\s+class\b|\bval\s+\w+\s*[:=]').hasMatch(text)) return 'Kotlin';

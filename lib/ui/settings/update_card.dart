@@ -10,7 +10,8 @@ enum _Phase { idle, checking, upToDate, available, downloading, failed }
 
 /// "Проверить обновления" block for the settings screen. Works on Android and Windows.
 class UpdateCard extends StatefulWidget {
-  const UpdateCard({super.key});
+  final Release? initialRelease;
+  const UpdateCard({super.key, this.initialRelease});
 
   @override
   State<UpdateCard> createState() => _UpdateCardState();
@@ -23,6 +24,21 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.initialRelease != null) {
+      _release = widget.initialRelease;
+      _phase = _Phase.checking;
+      _prepareInitial();
+    }
+  }
+
+  Future<void> _prepareInitial() async {
+    final abi = Platform.isAndroid ? await UpdateService.androidAbi() : '';
+    if (!mounted) return;
+    setState(() {
+      _asset = UpdateService.pickAsset(_release!, abi: abi);
+      _phase = _asset == null ? _Phase.failed : _Phase.available;
+      if (_asset == null) _error = 'Нет файла обновления для этого устройства.';
+    });
   }
 
   @override
@@ -51,6 +67,7 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
   ReleaseAsset? _asset;
   double _progress = 0;
   String? _error;
+  String? _downloadStatus;
 
   bool get _supported => Platform.isAndroid || Platform.isWindows;
 
@@ -58,6 +75,7 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
     setState(() {
       _phase = _Phase.checking;
       _error = null;
+      _downloadStatus = null;
     });
     try {
       final r = await UpdateService.fetchLatest();
@@ -98,6 +116,7 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
       _phase = _Phase.downloading;
       _progress = 0;
       _error = null;
+      _downloadStatus = null;
     });
     try {
       // Recheck at install time: the settings page may have stayed open while
@@ -116,7 +135,7 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
           return;
         }
         final dir = await UpdateService.downloadDir();
-        final file = await UpdateService.download(asset, dir, _onProgress);
+        final file = await UpdateService.download(asset, dir, _onProgress, onStatus: _onDownloadStatus);
         if (!mounted) return;
         await _waitForForeground();
         if (!mounted) return;
@@ -130,7 +149,9 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
           asset,
           await UpdateService.downloadDir(),
           _onProgress,
+          onStatus: _onDownloadStatus,
         );
+        if (!mounted) return;
         if (launcher == null) {
         if (mounted) {
           setState(() {
@@ -138,6 +159,19 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
             _error = 'Файл скачан в ${file.path}. Запустите его вместо текущей версии.';
           });
         }
+          return;
+        }
+        final restart = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+          title: const Text('Обновление загружено'),
+          content: const Text('Для установки NoteVibe закроется и запустится снова. Перезапустить сейчас?'),
+          actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Позже')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Перезапустить'))]));
+        if (!mounted) return;
+        if (restart != true) { setState(() => _phase = _Phase.available); return; }
+        if (UpdateService.demo) {
+          setState(() => _phase = _Phase.available);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('ДЕМО завершено. В обычной сборке сейчас произошёл бы перезапуск. EXE не изменён.')));
           return;
         }
         final updatedLauncher = await UpdateService.replaceWindowsLauncher(file, launcher);
@@ -163,8 +197,12 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
 
   void _onProgress(double v) {
     if (mounted) {
-      setState(() => _progress = v.clamp(0, 1));
+      setState(() { _progress = v.clamp(0, 1); _downloadStatus = null; });
     }
+  }
+
+  void _onDownloadStatus(String status) {
+    if (mounted) setState(() => _downloadStatus = status);
   }
 
   Future<void> _askInstallPermission() async {
@@ -214,6 +252,8 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
         if (_phase == _Phase.downloading) ...[
           const SizedBox(height: 8),
           LinearProgressIndicator(value: _progress > 0 ? _progress : null),
+          if (_downloadStatus != null) Padding(padding: const EdgeInsets.only(top: 8),
+            child: Text(_downloadStatus!, style: theme.textTheme.bodySmall)),
         ],
         if (_phase == _Phase.available && _release != null && _release!.notes.trim().isNotEmpty) ...[
           const SizedBox(height: 8),

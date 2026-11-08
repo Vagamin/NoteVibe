@@ -16,6 +16,7 @@ import '../widgets/note_info_button.dart';
 import '../widgets/reminder_button.dart';
 import 'format_glyph.dart';
 import 'code_dialog.dart';
+import 'code_blocks.dart';
 import '../theme/code_style.dart';
 import '../widgets/overflow_title_hint.dart';
 import 'dart:io';
@@ -62,7 +63,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
         FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить'))],
     ));
     if (confirmed != true || !mounted) return;
-    final operations = _quill.document.toDelta().toJson();
+    final operations = expandCodeBlocks(_quill.document.toDelta().toJson());
     final kept = <Map<String, dynamic>>[];
     var pending = <Map<String, dynamic>>[];
     for (final op in operations) {
@@ -80,7 +81,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     }
     kept.addAll(pending);
     if (kept.isEmpty) kept.add({'insert': '\n'});
-    _quill.document = Document.fromJson(kept);
+    _quill.document = Document.fromJson(foldCodeBlocks(kept));
     _docSub?.cancel();
     _docSub = _quill.changes.listen((change) { if (change.source == ChangeSource.local) _onEdited(); });
     _quill.updateSelection(const TextSelection.collapsed(offset: 0), ChangeSource.silent);
@@ -90,43 +91,81 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   }
 
   Future<void> _editCode() async {
-    final plain = _quill.document.toPlainText();
-    var start = _quill.selection.start.clamp(0, plain.length - 1);
-    var end = _quill.selection.end.clamp(start, plain.length - 1);
-    start = plain.lastIndexOf('\n', start == 0 ? 0 : start - 1) + 1;
-    if (start > end) start = 0;
-    end = plain.indexOf('\n', end);
-    if (end < 0) end = plain.length - 1;
-    final blocks = <(int, int)>[];
-    var offset = 0;
-    var lineStart = 0;
-    for (final op in _quill.document.toDelta().toJson()) {
-      final text = op['insert'];
-      if (text is! String) continue;
-      for (var i = 0; i < text.length; i++) {
-        if (text[i] != '\n') continue;
-        if ((op['attributes'] as Map?)?['code-block'] == true) blocks.add((lineStart, offset + i));
-        lineStart = offset + i + 1;
-      }
-      offset += text.length;
-    }
-    if (blocks.any((block) => block.$1 == start)) {
-      var changed = true;
-      while (changed) {
-        changed = false;
-        for (final block in blocks) {
-          if (block.$2 + 1 == start) { start = block.$1; changed = true; }
-          if (block.$1 == end + 1) { end = block.$2; changed = true; }
-        }
-      }
-    }
-    final code = await editCode(context, plain.substring(start, end),
+    final selection = _quill.selection;
+    final code = await editCode(context, '',
       highlight: _store.getSetting('code_highlight') != 'false',
       fontScale: ref.read(noteFontSizeProvider).scale);
     if (code == null || !mounted) return;
-    _quill.replaceText(start, end - start, code, TextSelection.collapsed(offset: start + code.length));
-    _quill.formatText(start, code.length + 1, Attribute.codeBlock);
+    var offset = selection.start.clamp(0, _quill.document.length - 1);
+    final plain = _quill.document.toPlainText();
+    // Keep an ordinary separator so adjacent blocks remain independent in the
+    // standard persisted format, including when reopened by older clients.
+    if (offset >= 2 && plain.substring(offset - 2, offset) == '\uFFFC\n') {
+      _quill.replaceText(offset, 0, '\n', null);
+      offset++;
+    }
+    if (offset > 0 && plain[offset - 1] != '\n') {
+      _quill.replaceText(offset, 0, '\n', null);
+      offset++;
+    }
+    _quill.replaceText(offset, 0, Embeddable(codeEmbedKey, {'source': code, 'id': UniqueKey().toString()}), null);
+    // The embed occupies its own line; the next line is always ordinary text.
+    final after = _quill.document.toPlainText();
+    if (offset + 1 >= after.length || after[offset + 1] != '\n') {
+      _quill.replaceText(offset + 1, 0, '\n', null);
+    }
+    if (offset + 2 >= _quill.document.length || _quill.document.toPlainText()[offset + 2] == '\uFFFC') {
+      _quill.replaceText(offset + 2, 0, '\n', null);
+    }
+    _quill.formatText(offset + 1, 1, Attribute.clone(Attribute.codeBlock, null));
+    _quill.updateSelection(TextSelection.collapsed(offset: offset + 2), ChangeSource.local);
+    _quill.formatSelection(Attribute.clone(Attribute.codeBlock, null));
+    _editorFocus.requestFocus();
+    _onEdited();
     _save();
+    setState(() {});
+  }
+
+  Future<void> _editEmbeddedCode(EmbedContext embed) async {
+    final node = embed.node;
+    final data = node.value.data as Map;
+    final code = await editCode(context, data['source'] as String,
+      highlight: _store.getSetting('code_highlight') != 'false', fontScale: ref.read(noteFontSizeProvider).scale);
+    if (code == null || !mounted) return;
+    final offset = _codeOffset(data['id']);
+    if (offset == null) return;
+    _quill.replaceText(offset, 1, Embeddable(codeEmbedKey, {'source': code, 'id': data['id']}),
+      TextSelection.collapsed(offset: offset));
+    _onEdited();
+    _save();
+    setState(() {});
+  }
+
+  Future<void> _deleteEmbeddedCode(EmbedContext embed) async {
+    final id = (embed.node.value.data as Map)['id'];
+    final confirmed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Удалить блок кода?'),
+      content: const Text('Остальные блоки и обычный текст останутся.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить'))]));
+    if (confirmed != true || !mounted) return;
+    final offset = _codeOffset(id);
+    if (offset == null) return;
+    final length = offset + 2 < _quill.document.length ? 2 : 1;
+    _quill.replaceText(offset, length, '', TextSelection.collapsed(offset: offset));
+    _onEdited();
+    _save();
+    setState(() {});
+  }
+
+  int? _codeOffset(dynamic id) {
+    var offset = 0;
+    for (final op in _quill.document.toDelta().toJson()) {
+      final insert = op['insert'];
+      if (insert is Map && insert[codeEmbedKey] is Map && insert[codeEmbedKey]['id'] == id) return offset;
+      offset += insert is String ? insert.length : 1;
+    }
+    return null;
   }
 
   @override
@@ -148,7 +187,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     final oldQuill = _quill;
     Document doc;
     try {
-      doc = Document.fromJson(jsonDecode(n?.content ?? emptyDeltaJson) as List);
+      doc = Document.fromJson(foldCodeBlocks(jsonDecode(n?.content ?? emptyDeltaJson) as List));
     } catch (_) {
       doc = Document()..insert(0, n?.plainText ?? '');
     }
@@ -243,8 +282,9 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     _saveTimer?.cancel();
     if (!_dirty) return;
     try {
-      final content = jsonEncode(_quill.document.toDelta().toJson());
-      final plain = _quill.document.toPlainText();
+      final operations = expandCodeBlocks(_quill.document.toDelta().toJson());
+      final content = jsonEncode(operations);
+      final plain = Document.fromJson(operations).toPlainText();
       final updated = _store.updateNote(widget.noteId,
           title: _title.text, content: content, plainText: plain);
       _dirty = false;
@@ -306,7 +346,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       return const Center(child: Text('Заметка удалена'));
     }
     final hasConflict = _store.conflictsFor(widget.noteId).isNotEmpty;
-    final codeLines = noteLines(jsonEncode(_quill.document.toDelta().toJson()), '')
+    final codeLines = noteLines(jsonEncode(expandCodeBlocks(_quill.document.toDelta().toJson())), '')
       .where((line) => line.attributes['code-block'] != null).toList();
 
     final toolbar = FormatToolbar(controller: _quill, large: widget.compact,
@@ -331,7 +371,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   onPressed: () => addNoteAttachments(context, ref, widget.noteId),
                 ),
                 NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt,
-                  content: jsonEncode(_quill.document.toDelta().toJson())),
+                  content: jsonEncode(expandCodeBlocks(_quill.document.toDelta().toJson()))),
                 IconButton(
                   tooltip: note.important ? 'Снять отметку «важное»' : 'Отметить как важное',
                   icon: Icon(note.important ? Icons.star : Icons.star_outline,
@@ -397,7 +437,12 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                     controller: _quill,
                     focusNode: _editorFocus,
                     scrollController: _quillScroll,
-                     config: QuillEditorConfig(
+                      config: QuillEditorConfig(
+                        embedBuilders: [CodeBlockBuilder(
+                          scale: ref.watch(noteFontSizeProvider).scale,
+                          highlight: _store.getSetting('code_highlight') != 'false',
+                          onEdit: _editEmbeddedCode, onDelete: _deleteEmbeddedCode,
+                          onToggle: () => _editorFocus.unfocus())],
                        showCodeBlockLineNumbers: false,
                       scrollable: false,
                       editorKey: _renderKey,

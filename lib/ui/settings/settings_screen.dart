@@ -19,7 +19,8 @@ import 'vault_password_card.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   final bool focusUpdates;
-  const SettingsScreen({super.key, this.focusUpdates = false});
+  final Release? initialRelease;
+  const SettingsScreen({super.key, this.focusUpdates = false, this.initialRelease});
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -313,8 +314,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               color: _highlightUpdates ? Theme.of(context).colorScheme.primaryContainer : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
-          ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('Обновления', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
             _SettingsSwitch(
               icon: Icons.update,
@@ -326,7 +327,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                setState(() {});
              },
            ),
-           const UpdateCard(),
+            UpdateCard(initialRelease: widget.initialRelease),
+            ]),
+          ),
           const SizedBox(height: 24),
           Text('Файлы', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),

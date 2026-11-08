@@ -51,6 +51,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   bool _checkingUpdate = false;
   String? _notifiedVersion;
   String? _availableUpdate;
+  Release? _availableRelease;
 
   @override
   void initState() {
@@ -99,14 +100,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (store.getSetting('updates_auto') == 'false') return;
     final last = int.tryParse(store.getSetting('updates_last_check') ?? '') ?? 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - last < const Duration(minutes: 5).inMilliseconds) return;
+    if (!UpdateService.demo && now - last < const Duration(minutes: 5).inMilliseconds) return;
     _checkingUpdate = true;
     store.setSetting('updates_last_check', '$now');
     try {
       final release = await UpdateService.fetchLatest().timeout(const Duration(seconds: 20));
       if (!mounted || store.getSetting('updates_auto') == 'false' || !UpdateService.isNewer(release.version, appVersion) || _notifiedVersion == release.version) return;
       _notifiedVersion = release.version;
-      setState(() => _availableUpdate = release.version);
+      setState(() { _availableUpdate = release.version; _availableRelease = release; });
     } catch (_) {
       // A failed background check must not interrupt editing or offline use.
     } finally {
@@ -429,7 +430,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
              if (_availableUpdate != null) UpdateBanner(version: _availableUpdate!,
                onLater: () => setState(() => _availableUpdate = null),
                onOpen: () => Navigator.push(context,
-                 MaterialPageRoute(builder: (_) => const SettingsScreen(focusUpdates: true)))),
+                  MaterialPageRoute(builder: (_) => SettingsScreen(focusUpdates: true, initialRelease: _availableRelease)))),
              Expanded(child: body),
            ]),
           floatingActionButton: wide || selecting != null

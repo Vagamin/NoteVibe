@@ -55,9 +55,18 @@ class Release {
 class UpdateService {
   UpdateService._();
 
+  /// Enabled only in explicitly built UI previews, never in normal releases.
+  static const demo = bool.fromEnvironment('NOTEVIBE_UPDATE_DEMO');
+
   static const _channel = MethodChannel('notevibe/update');
 
   static Future<Release> fetchLatest() async {
+    if (demo) {
+      return const Release(version: '99.0.0',
+      notes: 'ДЕМО обновления. Скачивание и замена EXE отключены. Можно проверить переход, повтор после 504 и подтверждение перезапуска.',
+      pageUrl: 'https://github.com/Vagamin/NoteVibe/releases',
+      assets: [ReleaseAsset(name: 'NoteVibe.exe', url: 'https://example.invalid/demo', size: 3)]);
+    }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final req = await client
@@ -127,7 +136,19 @@ class UpdateService {
     ReleaseAsset a,
     Directory dir,
     void Function(double) onProgress,
+    {void Function(String)? onStatus}
   ) async {
+    if (demo) {
+      onProgress(.15);
+      await Future<void>.delayed(const Duration(seconds: 1));
+      onStatus?.call('Не удалось скачать файл (код 504).\nПовторная попытка 2 из 6…');
+      await Future<void>.delayed(const Duration(seconds: 5));
+      for (var i = 2; i <= 10; i++) {
+        onProgress(i / 10);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      return File(p.join(dir.path, 'DEMO-NOT-A-REAL-UPDATE'));
+    }
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, a.name));
     TemporaryCache.retain(file.path);
@@ -188,8 +209,9 @@ class UpdateService {
             throw const UpdateException('Файл обновления повреждён. Скачиваем заново.');
           }
           return file;
-        } catch (_) {
+        } catch (error) {
           if (attempt == 5) rethrow;
+          onStatus?.call('Загрузка прервана: $error\nПовторная попытка ${attempt + 2} из 6…');
           await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));
         }
       }
@@ -220,6 +242,7 @@ class UpdateService {
 
   /// Path of the portable launcher the user starts, or null for other builds.
   static String? windowsLauncherPath() {
+    if (demo) return 'DEMO-NOT-A-REAL-LAUNCHER';
     final f = File(p.join(File(Platform.resolvedExecutable).parent.path, 'portable.json'));
     if (!f.existsSync()) return null;
     try {
@@ -233,6 +256,7 @@ class UpdateService {
   /// Uses a stable filename in the same folder, keeping portable data in place.
   /// Returns the new launcher path; legacy shortcuts need to be recreated once.
   static Future<String> replaceWindowsLauncher(File downloaded, String launcherPath) async {
+    if (demo) throw const UpdateException('ДЕМО: замена EXE запрещена.');
     final target = File(p.join(p.dirname(launcherPath), 'NoteVibe.exe'));
     final staged = File('${target.path}.${DateTime.now().microsecondsSinceEpoch}.new');
     final backup = File('${staged.path}.backup');

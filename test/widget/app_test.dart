@@ -48,6 +48,56 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+  testWidgets('independent code blocks collapse without hiding ordinary text', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final note = s.store.createNote(title: 'Несколько блоков', content: jsonEncode([
+      {'insert': 'print(1)\n', 'attributes': {'code-block': true}},
+      {'insert': 'Обычный текст\n'},
+      {'insert': 'fn main() {}\n', 'attributes': {'code-block': true}},
+      {'insert': 'Продолжение\n'},
+    ]), plainText: 'print(1)\nОбычный текст\nfn main() {}\nПродолжение\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Несколько блоков'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Свернуть код'), findsNWidgets(2));
+    final focusedEditor = tester.widget<QuillEditor>(find.byType(QuillEditor));
+    focusedEditor.focusNode.requestFocus();
+    await tester.pump();
+    await tester.tap(find.byTooltip('Свернуть код').first);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Развернуть код'), findsOneWidget);
+    expect(focusedEditor.focusNode.hasFocus, isFalse);
+    expect(find.byTooltip('Свернуть код'), findsOneWidget);
+    expect(s.store.getNote(note.id)!.plainText, contains('print(1)'));
+    final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
+    expect(controller.document.toPlainText(), contains('Обычный текст'));
+    await tester.tap(find.byTooltip('Блок кода'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'const x = 2;');
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(s.store.getNote(note.id)!.plainText, contains('const x = 2;'));
+    expect(s.store.getNote(note.id)!.content, isNot(contains('notevibe-code')));
+    controller.replaceText(controller.selection.start, 0, 'Новый текст', null);
+    await tester.pump(const Duration(seconds: 1));
+    expect(s.store.getNote(note.id)!.plainText, contains('Новый текст'));
+    await tester.tap(find.byTooltip('Действия с блоком кода').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Удалить блок кода'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
+    await tester.pumpAndSettle();
+    expect(s.store.getNote(note.id)!.plainText, isNot(contains('fn main()')));
+    expect(s.store.getNote(note.id)!.plainText, contains('print(1)'));
+    expect(s.store.getNote(note.id)!.plainText, contains('Обычный текст'));
+    expect(find.byTooltip('Действия с блоком кода'), findsNWidgets(2));
+    expect(find.textContaining('Не удалось сохранить:'), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
   testWidgets('code information and conditional toolbar deletion preserve ordinary text', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());
@@ -61,7 +111,7 @@ void main() {
     await tester.tap(find.byTooltip('Сведения о заметке'));
     await tester.pumpAndSettle();
     expect(find.text('Язык программного кода'), findsOneWidget);
-    expect(find.text('Python'), findsOneWidget);
+    expect(find.descendant(of: find.byType(AlertDialog), matching: find.text('Python')), findsOneWidget);
     await tester.tap(find.text('Закрыть'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Удалить весь код'));

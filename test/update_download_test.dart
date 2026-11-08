@@ -5,6 +5,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notevibe/update/update_service.dart';
 
 void main() {
+  test('504 is reported as a retry and later success completes download', () async {
+    final dir = await Directory.systemTemp.createTemp('nv_update_retry');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var requests = 0;
+    final statuses = <String>[];
+    final subscription = server.listen((req) async {
+      if (requests++ == 0) { req.response.statusCode = 504; }
+      else { req.response.add([1, 2, 3]); }
+      await req.response.close();
+    });
+    try {
+      final file = await UpdateService.download(ReleaseAsset(name: 'test.exe',
+        url: 'http://127.0.0.1:${server.port}/update', size: 3), dir, (_) {}, onStatus: statuses.add);
+      expect(await file.readAsBytes(), [1, 2, 3]);
+      expect(statuses.single, contains('504'));
+      expect(statuses.single, contains('2 из 6'));
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+      await dir.delete(recursive: true);
+    }
+  });
   test('same-sized corrupt cached APK is replaced and SHA256 verified', () async {
     final dir = await Directory.systemTemp.createTemp('nv_update_hash');
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

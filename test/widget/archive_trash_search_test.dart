@@ -32,6 +32,11 @@ void main() {
       await tester.tap(find.byTooltip('Закрыть поиск'));
       await tester.pumpAndSettle();
       expect(find.text('Бета'), findsOneWidget);
+      await tester.tap(find.byTooltip('Поиск'));
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

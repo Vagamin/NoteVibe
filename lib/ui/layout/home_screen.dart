@@ -281,6 +281,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     ];
 
     final listPane = Column(children: [
+      if (wide && selecting == null) Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Row(children: [
+          Expanded(child: SizedBox(height: 40, child: FilledButton.icon(
+            style: FilledButton.styleFrom(fixedSize: const Size.fromHeight(40),
+              visualDensity: VisualDensity.standard, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+            onPressed: () => _newNote(true),
+            icon: const Icon(Icons.add), label: const Text('Новая заметка')))),
+          const SizedBox(width: 8),
+          Tooltip(message: 'Новая голосовая заметка', child: SizedBox.square(dimension: 40,
+            child: FilledButton(
+              style: FilledButton.styleFrom(fixedSize: const Size(40, 40), minimumSize: const Size(40, 40), padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.standard, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              onPressed: () => _newVoiceNote(true), child: const Icon(Icons.mic)))),
+        ]),
+      ),
       Expanded(
         child: NotesList(
           selectedId: wide ? selected : null,
@@ -319,7 +335,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             if (focus?.context?.findAncestorWidgetOfExactType<EditableText>() == null) _bulkDelete(selecting);
           },
       },
-      child: Focus(
+      child: PopScope(
+        canPop: selecting == null && !transferSelecting && !_searchVisible,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          if (selecting != null || transferSelecting) {
+            ref.read(selectionProvider.notifier).clear();
+            ref.read(transferSelectionProvider.notifier).set(false);
+          } else if (_searchVisible) {
+            _closeSearch();
+          }
+        },
+        child: Focus(
         autofocus: true,
         child: Scaffold(
           appBar: PreferredSize(
@@ -429,7 +456,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   ),
                 ]),
         ),
-      ),
+      )),
     );
   }
 }
@@ -502,7 +529,7 @@ class _MobileEditorPageState extends ConsumerState<MobileEditorPage> {
     return Scaffold(
       appBar: AppBar(
         actions: [
-          if (note != null) NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt),
+          if (note != null) NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt, content: note.content),
           IconButton(
             tooltip: 'Добавить вложения',
             icon: const Icon(Icons.attach_file),

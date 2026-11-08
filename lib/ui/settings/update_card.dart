@@ -140,8 +140,8 @@ class _UpdateCardState extends State<UpdateCard> with WidgetsBindingObserver {
         }
           return;
         }
-        await UpdateService.replaceWindowsLauncher(file, launcher);
-        await UpdateService.launchWindows(launcher);
+        final updatedLauncher = await UpdateService.replaceWindowsLauncher(file, launcher);
+        await UpdateService.launchWindows(updatedLauncher);
         exit(0);
       }
     } on UpdateException catch (e) {

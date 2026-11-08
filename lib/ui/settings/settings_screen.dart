@@ -148,6 +148,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (picked != null) ref.read(previewLinesProvider.notifier).set(picked);
             },
           ),
+          SettingsSwitchCard(icon: Icons.code, title: const Text('Блоки кода'),
+            subtitle: const Text('Редактирование и копирование с сохранением отступов.'),
+            value: ref.watch(storeProvider).getSetting('code_blocks') != 'false',
+            onChanged: (value) { ref.read(storeProvider).setSetting('code_blocks', '$value'); setState(() {}); }),
+          SettingsSwitchCard(icon: Icons.palette_outlined, title: const Text('Подсветка кода'),
+            subtitle: const Text('Базовая подсветка ключевых слов, строк и чисел в заметке и окне кода.'),
+            value: ref.watch(storeProvider).getSetting('code_highlight') != 'false',
+            onChanged: (value) { ref.read(storeProvider).setSetting('code_highlight', '$value'); setState(() {}); }),
           _SettingsTile(
             leading: const Icon(Icons.graphic_eq),
             title: const Text('Предпросмотр голосовых'),

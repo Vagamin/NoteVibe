@@ -15,6 +15,9 @@ import '../voice/voice_panel.dart';
 import '../widgets/note_info_button.dart';
 import '../widgets/reminder_button.dart';
 import 'format_glyph.dart';
+import 'code_dialog.dart';
+import '../theme/code_style.dart';
+import '../widgets/overflow_title_hint.dart';
 import 'dart:io';
 
 
@@ -50,6 +53,81 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   late final AppServices _services;
 
   NoteStore get _store => ref.read(storeProvider);
+
+  Future<void> _removeCode() async {
+    final confirmed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Удалить весь код?'),
+      content: const Text('Все блоки программного кода будут удалены. Обычный текст заметки останется.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить'))],
+    ));
+    if (confirmed != true || !mounted) return;
+    final operations = _quill.document.toDelta().toJson();
+    final kept = <Map<String, dynamic>>[];
+    var pending = <Map<String, dynamic>>[];
+    for (final op in operations) {
+      final text = op['insert'];
+      if (text is! String) { pending.add(Map<String, dynamic>.from(op)); continue; }
+      var start = 0;
+      for (var i = 0; i < text.length; i++) {
+        if (text[i] != '\n') continue;
+        pending.add({...op, 'insert': text.substring(start, i + 1)});
+        if ((op['attributes'] as Map?)?['code-block'] == null) kept.addAll(pending);
+        pending = [];
+        start = i + 1;
+      }
+      if (start < text.length) pending.add({...op, 'insert': text.substring(start)});
+    }
+    kept.addAll(pending);
+    if (kept.isEmpty) kept.add({'insert': '\n'});
+    _quill.document = Document.fromJson(kept);
+    _docSub?.cancel();
+    _docSub = _quill.changes.listen((change) { if (change.source == ChangeSource.local) _onEdited(); });
+    _quill.updateSelection(const TextSelection.collapsed(offset: 0), ChangeSource.silent);
+    _onEdited();
+    _save();
+    setState(() {});
+  }
+
+  Future<void> _editCode() async {
+    final plain = _quill.document.toPlainText();
+    var start = _quill.selection.start.clamp(0, plain.length - 1);
+    var end = _quill.selection.end.clamp(start, plain.length - 1);
+    start = plain.lastIndexOf('\n', start == 0 ? 0 : start - 1) + 1;
+    if (start > end) start = 0;
+    end = plain.indexOf('\n', end);
+    if (end < 0) end = plain.length - 1;
+    final blocks = <(int, int)>[];
+    var offset = 0;
+    var lineStart = 0;
+    for (final op in _quill.document.toDelta().toJson()) {
+      final text = op['insert'];
+      if (text is! String) continue;
+      for (var i = 0; i < text.length; i++) {
+        if (text[i] != '\n') continue;
+        if ((op['attributes'] as Map?)?['code-block'] == true) blocks.add((lineStart, offset + i));
+        lineStart = offset + i + 1;
+      }
+      offset += text.length;
+    }
+    if (blocks.any((block) => block.$1 == start)) {
+      var changed = true;
+      while (changed) {
+        changed = false;
+        for (final block in blocks) {
+          if (block.$2 + 1 == start) { start = block.$1; changed = true; }
+          if (block.$1 == end + 1) { end = block.$2; changed = true; }
+        }
+      }
+    }
+    final code = await editCode(context, plain.substring(start, end),
+      highlight: _store.getSetting('code_highlight') != 'false',
+      fontScale: ref.read(noteFontSizeProvider).scale);
+    if (code == null || !mounted) return;
+    _quill.replaceText(start, end - start, code, TextSelection.collapsed(offset: start + code.length));
+    _quill.formatText(start, code.length + 1, Attribute.codeBlock);
+    _save();
+  }
 
   @override
   void initState() {
@@ -228,8 +306,12 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       return const Center(child: Text('Заметка удалена'));
     }
     final hasConflict = _store.conflictsFor(widget.noteId).isNotEmpty;
+    final codeLines = noteLines(jsonEncode(_quill.document.toDelta().toJson()), '')
+      .where((line) => line.attributes['code-block'] != null).toList();
 
-    final toolbar = FormatToolbar(controller: _quill, large: widget.compact);
+    final toolbar = FormatToolbar(controller: _quill, large: widget.compact,
+      onRemoveCode: codeLines.isNotEmpty ? _removeCode : null,
+      onCode: _store.getSetting('code_blocks') != 'false' ? _editCode : null);
 
     return CallbackShortcuts(
       bindings: {
@@ -248,7 +330,8 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   icon: const Icon(Icons.attach_file),
                   onPressed: () => addNoteAttachments(context, ref, widget.noteId),
                 ),
-                NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt),
+                NoteInfoButton(createdAt: note.createdAt, updatedAt: note.updatedAt,
+                  content: jsonEncode(_quill.document.toDelta().toJson())),
                 IconButton(
                   tooltip: note.important ? 'Снять отметку «важное»' : 'Отметить как важное',
                   icon: Icon(note.important ? Icons.star : Icons.star_outline,
@@ -277,9 +360,16 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
           Expanded(
             child: ListView(
               controller: _scroll,
-              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 20 : 32, vertical: 12),
+              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 12 : 24, vertical: 12),
               children: [
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: TextField(
+                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [Expanded(child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _title,
+                  builder: (context, value, _) => EditableTitleHint(
+                    title: value.text,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontSize: Theme.of(context).textTheme.headlineSmall!.fontSize! * ref.watch(noteFontSizeProvider).scale),
+                    child: TextField(
                   controller: _title,
                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                      fontWeight: FontWeight.w700,
@@ -295,29 +385,43 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                   ),
                   textInputAction: TextInputAction.next,
                   onSubmitted: (_) => _editorFocus.requestFocus(),
-                )),
-                if (Platform.isAndroid) ReminderButton(noteId: widget.noteId, title: _title.text),
+                )))),
+                 if (Platform.isAndroid) ReminderButton(noteId: widget.noteId, title: _title.text, compact: true),
                 ]),
-                const SizedBox(height: 4),
-                const SizedBox(height: 16),
-                if (note.isVoice)
+                 const SizedBox(height: 10),
+                 if (note.isVoice)
                   VoicePanel(noteId: widget.noteId)
                 else
-                  QuillEditor(
+                   Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                   QuillEditor(
                     controller: _quill,
                     focusNode: _editorFocus,
                     scrollController: _quillScroll,
-                    config: QuillEditorConfig(
+                     config: QuillEditorConfig(
+                       showCodeBlockLineNumbers: false,
                       scrollable: false,
                       editorKey: _renderKey,
+                      textSpanBuilder: (context, node, offset, text, style, recognizer) {
+                        var code = false;
+                        Node? current = node;
+                        while (current != null) {
+                          if (current.style.attributes[Attribute.codeBlock.key]?.value != null) { code = true; break; }
+                          current = current.parent;
+                        }
+                        if (code && _store.getSetting('code_highlight') != 'false') {
+                          return highlightedCode(context, text, style);
+                        }
+                        return TextSpan(text: text, style: style, recognizer: recognizer);
+                      },
                       customStyleBuilder: (attribute) => attribute.key == Attribute.list.key && attribute.value == 'checked'
                         ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), decoration: TextDecoration.lineThrough)
                         : const TextStyle(),
                       placeholder: 'Начните писать…',
                       padding: const EdgeInsets.only(bottom: 120),
-                      customStyles: _styles(context),
-                    ),
-                  ),
+                       customStyles: _styles(context),
+                     ),
+                   ),
+                   ]),
                 const SizedBox(height: 16),
                 AttachmentsPanel(noteId: widget.noteId, skipAudio: note.isVoice),
               ],
@@ -346,7 +450,13 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       lists: defaults.lists?.copyWith(style: base, checkboxUIBuilder: _StableCheckboxBuilder(scale)),
       h1: scaled(defaults.h1), h2: scaled(defaults.h2), h3: scaled(defaults.h3),
       h4: scaled(defaults.h4), h5: scaled(defaults.h5), h6: scaled(defaults.h6),
-      quote: scaled(defaults.quote), code: scaled(defaults.code),
+       quote: scaled(defaults.quote),
+       code: DefaultTextBlockStyle(
+         TextStyle(fontFamily: 'monospace', fontSize: 14 * scale, height: 1.45,
+           color: Theme.of(context).colorScheme.onSurface),
+         const HorizontalSpacing(6, 6), const VerticalSpacing(6, 6), VerticalSpacing.zero,
+         codeDecoration(context),
+       ),
       indent: scaled(defaults.indent), align: scaled(defaults.align),
       leading: scaled(defaults.leading), placeHolder: scaled(defaults.placeHolder),
       sizeSmall: TextStyle(fontSize: 12 * scale),
@@ -416,7 +526,9 @@ class _ConflictBanner extends StatelessWidget {
 class FormatToolbar extends StatelessWidget {
   final QuillController controller;
   final bool large;
-  const FormatToolbar({super.key, required this.controller, this.large = false});
+  final VoidCallback? onCode;
+  final VoidCallback? onRemoveCode;
+  const FormatToolbar({super.key, required this.controller, this.large = false, this.onCode, this.onRemoveCode});
 
   @override
   Widget build(BuildContext context) {
@@ -473,6 +585,15 @@ class FormatToolbar extends StatelessWidget {
                 options: opts.copyWithTooltip('Подчёркнутый (Ctrl+U)', Icons.format_underline, (o,e) => _command(context, 'underline', 'Подчёркнутый (Ctrl+U)', e.onPressed, selected: e.isToggled)),
               ),
               divider,
+              if (onCode != null) IconButton(
+                tooltip: 'Блок кода', onPressed: onCode, icon: const Icon(Icons.code, size: size),
+                style: IconButton.styleFrom(minimumSize: Size.square(buttonSize),
+                  padding: EdgeInsets.zero, foregroundColor: scheme.onSurfaceVariant, shape: shape)),
+              if (onRemoveCode != null) IconButton(
+                tooltip: 'Удалить весь код', onPressed: onRemoveCode,
+                icon: const Icon(Icons.code_off, size: size),
+                style: IconButton.styleFrom(minimumSize: Size.square(buttonSize),
+                  padding: EdgeInsets.zero, foregroundColor: scheme.onSurfaceVariant, shape: shape)),
               QuillToolbarToggleCheckListButton(
                 controller: controller,
                 options: QuillToolbarToggleCheckListButtonOptions(

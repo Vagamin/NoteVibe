@@ -1,4 +1,4 @@
-# Builds a single-file portable NoteVibe for Windows: release\NoteVibe-<version>-portable.exe
+# Builds a single-file portable NoteVibe for Windows: release\NoteVibe.exe
 # Usage (from the project root):  powershell -File tools\portable\build_portable.ps1
 param([switch]$SkipFlutterBuild)
 $ErrorActionPreference = 'Stop'
@@ -28,7 +28,7 @@ $hash = (Get-FileHash "$work\payload.zip" -Algorithm SHA256).Hash.Substring(0, 1
 Set-Content "$work\payload.id" "$version-$hash" -NoNewline
 
 New-Item -ItemType Directory -Force release | Out-Null
-$out = "release\NoteVibe-$version-portable.exe"
+$out = "release\NoteVibe.exe"
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 & $csc /nologo /target:winexe /optimize+ /platform:x64 "/out:$out" `
     /win32icon:windows\runner\resources\app_icon.ico `
@@ -36,4 +36,7 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
     "/resource:$work\payload.zip,payload.zip" "/resource:$work\payload.id,payload.id" `
     tools\portable\Launcher.cs
 if ($LASTEXITCODE -ne 0) { throw 'launcher compile failed' }
+# Compatibility asset for released updaters that only recognize -portable.exe.
+# Publish alongside NoteVibe.exe during the transition; new clients prefer the stable name.
+Copy-Item $out "release\NoteVibe-$version-portable.exe" -Force
 Get-Item $out | Select-Object Name, @{n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }

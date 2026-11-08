@@ -222,7 +222,14 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: const Text('Разовая передача')), body: ListView(
+    return PopScope(
+      canPop: !_scan && !_manualLink,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && (_scan || _manualLink)) {
+          setState(() { _scan = false; _manualLink = false; _code.clear(); });
+        }
+      },
+      child: Scaffold(appBar: AppBar(title: const Text('Разовая передача')), body: ListView(
       padding: const EdgeInsets.all(16), children: [
         if (_completedCount != null) ...[
           Semantics(liveRegion: true, child: Card(
@@ -242,7 +249,7 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
         ],
          if (_offer == null) const Text('Оба устройства должны быть в одной Wi-Fi или локальной сети. Передача зашифрована и не добавляет устройство в постоянную синхронизацию.'),
          if (_offer == null) const SizedBox(height: 16),
-        if (!_busy && widget.selectedIds == null) Wrap(spacing: 12, runSpacing: 12, children: [
+         if (!_busy && widget.selectedIds == null && _mode == null) Wrap(spacing: 12, runSpacing: 12, children: [
           FilledButton.tonalIcon(onPressed: () {
             ref.read(transferSelectionProvider.notifier).set(true);
             ref.read(selectionProvider.notifier).start();
@@ -308,7 +315,7 @@ class _TransferScreenState extends ConsumerState<TransferScreen> {
          if (!_busy && _status != null && _completedCount == null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_status!)),
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
       ],
-    ));
+    )));
   }
 }
 

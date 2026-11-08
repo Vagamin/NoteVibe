@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'note_preview_text.dart';
+import '../widgets/overflow_title_hint.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -255,14 +256,16 @@ class NoteCard extends StatelessWidget {
     final s = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
     final lines = noteLines(note.content, note.plainText)
-        .where((l) => l.text.isNotEmpty)
+        .where((l) => l.text.isNotEmpty && l.attributes['code-block'] == null)
         .toList();
-    if (note.title.trim().isEmpty && lines.isNotEmpty) lines.removeAt(0);
+     final titleLines = List<NoteLine>.of(lines);
+     if (note.title.trim().isEmpty && lines.isNotEmpty) lines.removeAt(0);
     final limit = previewLines.lines < 0 ? lines.length : previewLines.lines;
     final shown = previewLines == PreviewLines.titleOnly ? <NoteLine>[] : lines.take(limit).toList();
     final checkItems = lines.where((l) => l.kind == 'checked' || l.kind == 'unchecked').toList();
     final doneCount = checkItems.where((l) => l.kind == 'checked').length;
     final bodyStyle = t.bodyMedium?.copyWith(color: s.onSurfaceVariant, fontSize: 14 * fontScale);
+    final hasCode = noteLines(note.content, note.plainText).any((line) => line.attributes['code-block'] != null);
     final importantColor = Colors.amber.shade700;
     final background = note.important
         ? Color.alphaBlend(importantColor.withValues(alpha: 0.14), s.surfaceContainerLow)
@@ -294,20 +297,25 @@ class NoteCard extends StatelessWidget {
                 const SizedBox(width: 8),
               ],
               Expanded(
-                child: note.title.trim().isEmpty && noteLines(note.content, note.plainText).any((line) => line.text.trim().isNotEmpty)
+                child: OverflowTitleHint(
+                  title: note.title.trim().isNotEmpty ? note.title : titleLines.any((line) => line.text.trim().isNotEmpty)
+                    ? titleLines.firstWhere((line) => line.text.trim().isNotEmpty).text : 'Без названия',
+                  style: (large ? t.titleMedium : t.titleSmall)?.copyWith(fontWeight: FontWeight.w600,
+                    fontSize: (large ? t.titleMedium?.fontSize : t.titleSmall?.fontSize)! * fontScale),
+                  child: note.title.trim().isEmpty && titleLines.any((line) => line.text.trim().isNotEmpty)
                   ? NotePreviewText(
-                      line: noteLines(note.content, note.plainText).firstWhere((line) => line.text.trim().isNotEmpty),
+                      line: titleLines.firstWhere((line) => line.text.trim().isNotEmpty),
                       style: (large ? t.titleMedium : t.titleSmall)?.copyWith(
                         fontWeight: FontWeight.w600,
                         fontSize: (large ? t.titleMedium?.fontSize : t.titleSmall?.fontSize)! * fontScale),
                     )
-                  : Text(note.displayTitle,
+                  : Text(note.title.trim().isEmpty && hasCode ? 'Без названия' : note.displayTitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                      style: (large ? t.titleMedium : t.titleSmall)?.copyWith(
                        fontWeight: FontWeight.w600,
                        fontSize: (large ? t.titleMedium?.fontSize : t.titleSmall?.fontSize)! * fontScale,
-                     )),
+                      ))),
               ),
               if (note.hasConflict)
                 Padding(
@@ -355,6 +363,12 @@ class NoteCard extends StatelessWidget {
                   ]),
                 ),
             ],
+            if (previewLines.lines >= 0 && lines.length > shown.length)
+              Padding(padding: const EdgeInsets.only(top: 2), child: Tooltip(
+                message: 'В заметке есть продолжение',
+                child: Semantics(label: 'В заметке есть продолжение',
+                  child: Icon(Icons.more_horiz, size: 20, color: s.onSurfaceVariant)),
+              )),
             if (note.isVoice && voice != null && voice!.isNotEmpty) ...[
               const SizedBox(height: 8),
               for (final a in voice!.take(voicePreview.count))
@@ -395,6 +409,20 @@ class NoteCard extends StatelessWidget {
                 Text('ВАЖНОЕ',
                     style: t.labelSmall?.copyWith(color: importantColor, fontWeight: FontWeight.w600, letterSpacing: 0.6)),
               ]),
+            ],
+            if (hasCode) ...[
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(horizontal: 8 * fontScale, vertical: 4 * fontScale),
+                decoration: BoxDecoration(color: s.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: s.outlineVariant)),
+                child: Text('Есть программный код',
+                  textAlign: TextAlign.center,
+                  style: t.labelSmall?.copyWith(color: s.onSurfaceVariant,
+                    fontSize: (t.labelSmall?.fontSize ?? 11) * fontScale)),
+              ),
             ],
           ]),
         ),

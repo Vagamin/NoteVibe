@@ -5,10 +5,40 @@ import 'package:intl/intl.dart';
 
 const reminderChannel = MethodChannel('notevibe/update');
 
-class ReminderButton extends StatelessWidget {
+class ReminderButton extends StatefulWidget {
   final String noteId;
   final String title;
-  const ReminderButton({super.key, required this.noteId, required this.title});
+  final bool compact;
+  const ReminderButton({super.key, required this.noteId, required this.title, this.compact = false});
+  @override
+  State<ReminderButton> createState() => _ReminderButtonState();
+}
+
+class _ReminderButtonState extends State<ReminderButton> with WidgetsBindingObserver {
+  DateTime? _scheduled;
+  String get noteId => widget.noteId;
+  String get title => widget.title;
+  @override
+  void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); _refresh(); }
+  @override
+  void didUpdateWidget(ReminderButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.noteId != noteId) { _scheduled = null; _refresh(); }
+  }
+  @override
+  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+  Future<void> _refresh() async {
+    final id = noteId;
+    try {
+      final raw = await reminderChannel.invokeMethod<String>('reminderGet', {'id': id});
+      final at = raw == null ? null : DateTime.fromMillisecondsSinceEpoch((jsonDecode(raw) as Map)['at'] as int);
+      if (mounted && id == noteId) setState(() => _scheduled = at);
+    } catch (_) { /* Unsupported platforms keep the default icon. */ }
+  }
 
   Future<void> _edit(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -18,15 +48,23 @@ class ReminderButton extends StatelessWidget {
       if (!context.mounted) return;
       final action = await showDialog<String>(context: context, builder: (c) => AlertDialog(
         title: const Text('Напомнить прочитать'),
-        actionsAlignment: MainAxisAlignment.spaceBetween,
-        actionsOverflowAlignment: OverflowBarAlignment.start,
         content: Text(existing == null ? 'Однократное уведомление на этом телефоне.' : 'Назначено: ${DateFormat('dd.MM.yyyy HH:mm').format(existing)}'),
-        actions: [SizedBox(width: double.infinity, child: Wrap(
-          alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 8, runSpacing: 8, children: [
-            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Назад')),
-            if (existing != null) TextButton(onPressed: () => Navigator.pop(c, 'cancel'), child: const Text('Удалить')),
-            FilledButton(onPressed: () => Navigator.pop(c, 'set'), child: Text(existing == null ? 'Выбрать время' : 'Изменить')),
+        actions: [SizedBox(width: double.infinity, child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              onPressed: () => Navigator.pop(c, 'set'), child: Text(existing == null ? 'Выбрать время' : 'Изменить')),
+            if (existing != null) ...[
+              const SizedBox(height: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                onPressed: () => Navigator.pop(c, 'cancel'), child: const Text('Удалить')),
+            ],
+            const SizedBox(height: 8),
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              onPressed: () => Navigator.pop(c), child: const Text('Назад')),
           ],
         ))],
       ));
@@ -75,5 +113,19 @@ class ReminderButton extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => IconButton(tooltip: 'Напомнить прочитать', icon: const Icon(Icons.notification_add_outlined), onPressed: () => _edit(context));
+  Widget build(BuildContext context) {
+    final active = _scheduled?.isAfter(DateTime.now()) ?? false;
+    return IconButton(
+      padding: widget.compact ? EdgeInsets.zero : null,
+      constraints: widget.compact ? const BoxConstraints(minWidth: 36, minHeight: 48) : null,
+      tooltip: active ? 'Напоминание: ${DateFormat('dd.MM.yyyy HH:mm').format(_scheduled!)}' : 'Напомнить прочитать',
+      style: IconButton.styleFrom(
+        tapTargetSize: widget.compact ? MaterialTapTargetSize.shrinkWrap : null,
+        side: BorderSide.none,
+        backgroundColor: Colors.transparent,
+        foregroundColor: active ? Theme.of(context).colorScheme.primary : null),
+      icon: Icon(active ? Icons.notifications_active : Icons.notification_add_outlined),
+      onPressed: () async { await _edit(context); await _refresh(); },
+    );
+  }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../domain/note.dart';
+import '../theme/code_style.dart';
 
 Color? previewColor(dynamic value) {
   if (value is! String || !RegExp(r'^#(?:[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$').hasMatch(value)) return null;
@@ -23,7 +24,8 @@ class NotePreviewText extends StatelessWidget {
     if (header is int && header >= 1 && header <= 6) {
       base = base.copyWith(fontSize: (base.fontSize ?? 14) * [1.8, 1.5, 1.3, 1.2, 1.1, 1.0][header - 1], fontWeight: FontWeight.bold);
     }
-    if (line.attributes['code-block'] != null) base = base.copyWith(fontFamily: 'monospace', backgroundColor: scheme.surfaceContainerHighest);
+    final code = line.attributes['code-block'] != null;
+    if (code) base = base.copyWith(fontFamily: 'monospace', color: scheme.onSurface);
     final runs = line.runs.isEmpty ? [NoteRun(line.text, const {})] : line.runs;
     final text = Text.rich(TextSpan(style: base, children: [for (final run in runs)
       TextSpan(text: run.text, style: TextStyle(
@@ -49,6 +51,11 @@ class NotePreviewText extends StatelessWidget {
         'center' => TextAlign.center, 'right' => TextAlign.right, 'justify' => TextAlign.justify, _ => TextAlign.start,
       });
     Widget result = checked ? Opacity(opacity: 0.5, child: text) : text;
+    if (code) {
+      result = Container(width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: codeDecoration(context), child: result);
+    }
     if (line.attributes['blockquote'] == true) {
       result = Container(padding: const EdgeInsets.only(left: 8), decoration: BoxDecoration(
         border: Border(left: BorderSide(color: scheme.outline, width: 3))), child: result);

@@ -18,6 +18,7 @@ import 'package:notevibe/sync/sync_service.dart';
 import 'package:notevibe/ui/layout/home_screen.dart';
 import 'package:notevibe/ui/providers.dart';
 import 'package:notevibe/ui/editor/format_glyph.dart';
+import 'package:notevibe/ui/notes_list/notes_list.dart';
 
 Future<AppServices> makeServices() async {
   final store = NoteStore.inMemory(deviceId: 'TEST');
@@ -47,6 +48,95 @@ Future<void> pumpApp(WidgetTester tester, AppServices s, {Size size = const Size
 
 void main() {
   setUpAll(() => initializeDateFormatting('ru'));
+  testWidgets('code information and conditional toolbar deletion preserve ordinary text', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final note = s.store.createNote(title: 'Удаление кода', content: jsonEncode([
+      {'insert': 'Обычный текст\n'},
+      {'insert': 'print(42)'}, {'insert': '\n', 'attributes': {'code-block': true}},
+    ]), plainText: 'Обычный текст\nprint(42)\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Удаление кода'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Сведения о заметке'));
+    await tester.pumpAndSettle();
+    expect(find.text('Язык программного кода'), findsOneWidget);
+    expect(find.text('Python'), findsOneWidget);
+    await tester.tap(find.text('Закрыть'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Удалить весь код'));
+    await tester.tap(find.byTooltip('Удалить весь код'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
+    await tester.pumpAndSettle();
+    expect(s.store.getNote(note.id)!.plainText, 'Обычный текст\n');
+    expect(s.store.getNote(note.id)!.content, isNot(contains('code-block')));
+    expect(find.byTooltip('Удалить весь код'), findsNothing);
+    await tester.tap(find.byTooltip('Сведения о заметке'));
+    await tester.pumpAndSettle();
+    expect(find.text('Язык программного кода'), findsNothing);
+  });
+  testWidgets('desktop can create another note while its only note is open', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.createNote(title: 'Единственная');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Единственная'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Новая заметка'));
+    await tester.pumpAndSettle();
+    expect(s.store.listNotes(), hasLength(2));
+    expect(find.byTooltip('Новая голосовая заметка'), findsOneWidget);
+    final create = find.widgetWithText(FilledButton, 'Новая заметка');
+    final voice = find.descendant(of: find.byTooltip('Новая голосовая заметка'), matching: find.byType(FilledButton));
+    expect(tester.getSize(create).height, 40);
+    expect(tester.getSize(voice).height, tester.getSize(create).height);
+  });
+
+  testWidgets('saved code block uses dark theme instead of default white decoration', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.setSetting('theme', 'dark');
+    s.store.createNote(title: 'Код', content: jsonEncode([
+      {'insert': 'print(42)'}, {'insert': '\n', 'attributes': {'code-block': true}},
+    ]), plainText: 'print(42)\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Код'));
+    await tester.pumpAndSettle();
+    final editor = tester.widget<QuillEditor>(find.byType(QuillEditor));
+    final decoration = editor.config.customStyles!.code!.decoration as BoxDecoration;
+    expect(decoration.color!.computeLuminance(), lessThan(.3));
+  });
+  testWidgets('limited preview marks hidden continuation but full preview does not', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final note = s.store.createNote(title: 'Test', content: jsonEncode([{'insert': '1\n2\n3\n4\n'}]), plainText: '1\n2\n3\n4\n');
+    Future<void> show(PreviewLines preview) async {
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: NoteCard(note: note, onTap: () {}, previewLines: preview))));
+      await tester.pumpAndSettle();
+    }
+    await show(PreviewLines.three);
+    expect(find.byTooltip('В заметке есть продолжение'), findsOneWidget);
+    await show(PreviewLines.full);
+    expect(find.byTooltip('В заметке есть продолжение'), findsNothing);
+    await show(PreviewLines.five);
+    expect(find.byTooltip('В заметке есть продолжение'), findsNothing);
+  });
+
+  testWidgets('system back cancels bulk selection before leaving home', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    await pumpApp(tester, s, size: const Size(412, 915));
+    final container = ProviderScope.containerOf(tester.element(find.byType(HomeScreen)));
+    container.read(selectionProvider.notifier).start();
+    container.read(transferSelectionProvider.notifier).set(true);
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(container.read(selectionProvider), isNull);
+    expect(container.read(transferSelectionProvider), false);
+    expect(find.byType(HomeScreen), findsOneWidget);
+  });
 
   testWidgets('hidden vault warning does not add a second status-bar inset', (tester) async {
     late AppServices s;
@@ -61,6 +151,20 @@ void main() {
     final appBar = find.byType(AppBar).first;
     expect(tester.getTopLeft(appBar).dy, 0);
     expect(tester.getSize(appBar).height, 88);
+  });
+
+  testWidgets('code notice follows note font size setting', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    s.store.setSetting('note_font_size', 'maximum');
+    s.store.createNote(title: 'Код', content: jsonEncode([
+      {'insert': 'print(42)'}, {'insert': '\n', 'attributes': {'code-block': true}},
+    ]), plainText: 'print(42)\n');
+    await pumpApp(tester, s);
+    final notice = tester.widget<Text>(find.text('Есть программный код'));
+    final context = tester.element(find.text('Есть программный код'));
+    expect(notice.style!.fontSize, closeTo(Theme.of(context).textTheme.labelSmall!.fontSize! * 1.85, 0.01));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('font setting scales editor paragraphs, lists and headings', (tester) async {
@@ -214,7 +318,7 @@ void main() {
     expect(find.text('Заметок пока нет.\nНажмите «+», чтобы создать первую.'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsNothing); // desktop layout
 
-    await tester.tap(find.textContaining('Новая заметка'));
+    await tester.tap(find.text('Новая заметка'));
     await tester.pumpAndSettle();
     expect(s.store.listNotes(), hasLength(1));
     expect(find.byType(QuillEditor), findsOneWidget);

@@ -132,7 +132,12 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
       label: Text(count == 0 ? 'Записать' : 'Записать ещё'),
     );
 
-    return Container(
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selecting) setState(() { _selecting = false; _selected.clear(); });
+      },
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color,
@@ -233,7 +238,7 @@ class _VoicePanelState extends ConsumerState<VoicePanel> {
           ],
         ],
       ),
-    );
+    ));
   }
 
   static String _format(Duration d) {

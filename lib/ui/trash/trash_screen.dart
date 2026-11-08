@@ -41,7 +41,14 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
     ref.watch(storeChangesProvider);
     final period = ref.watch(trashPeriodProvider);
     final count = ref.watch(storeProvider).listTrashed().length;
-    return Scaffold(
+    return PopScope(
+      canPop: selecting == null && !_searchVisible,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (selecting != null) { _selection.clear(); }
+        else if (_searchVisible) { _toggleSearch(); }
+      },
+      child: Scaffold(
       appBar: selecting != null
           ? AppBar(
               leading: IconButton(
@@ -101,7 +108,7 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
         ),
         Expanded(child: NotesList(trashed: true, large: true, onOpen: _open)),
       ]),
-    );
+    ));
   }
 
   void _open(Note n) {

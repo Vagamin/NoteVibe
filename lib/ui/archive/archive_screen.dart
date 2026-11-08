@@ -42,7 +42,14 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   @override
   Widget build(BuildContext context) {
     final selecting = ref.watch(selectionProvider);
-    return Scaffold(
+    return PopScope(
+      canPop: selecting == null && !_searchVisible,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (selecting != null) { _selection.clear(); }
+        else if (_searchVisible) { _toggleSearch(); }
+      },
+      child: Scaffold(
       appBar: selecting != null
           ? AppBar(
               leading: IconButton(
@@ -86,7 +93,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       body: Column(children: [
         Expanded(child: NotesList(archived: true, large: true, onOpen: _open)),
       ]),
-    );
+    ));
   }
 
   Future<void> _bulkDelete(Set<String> ids) async {

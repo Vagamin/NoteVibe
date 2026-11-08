@@ -111,6 +111,9 @@ class UpdateService {
     }
     if (Platform.isWindows) {
       for (final a in r.assets) {
+        if (a.name.toLowerCase() == 'notevibe.exe') return a;
+      }
+      for (final a in r.assets) {
         if (a.name.endsWith('-portable.exe')) return a;
       }
     }
@@ -227,14 +230,32 @@ class UpdateService {
     }
   }
 
-  /// Replaces the portable launcher in place, so the taskbar pin and the
-  /// NoteVibe-Data folder keep working. The running app does not use this file.
-  static Future<void> replaceWindowsLauncher(File downloaded, String launcherPath) async {
-    await downloaded.copy('$launcherPath.new');
-    final target = File(launcherPath);
-    if (await target.exists()) await target.delete();
-    await File('$launcherPath.new').rename(launcherPath);
+  /// Uses a stable filename in the same folder, keeping portable data in place.
+  /// Returns the new launcher path; legacy shortcuts need to be recreated once.
+  static Future<String> replaceWindowsLauncher(File downloaded, String launcherPath) async {
+    final target = File(p.join(p.dirname(launcherPath), 'NoteVibe.exe'));
+    final staged = File('${target.path}.${DateTime.now().microsecondsSinceEpoch}.new');
+    final backup = File('${staged.path}.backup');
+    await downloaded.copy(staged.path);
+    try {
+      if (await target.exists()) await target.rename(backup.path);
+      try {
+        await staged.rename(target.path);
+      } catch (_) {
+        if (await backup.exists()) await backup.rename(target.path);
+        rethrow;
+      }
+    } finally {
+      if (await staged.exists()) await staged.delete();
+    }
+    if (await backup.exists()) await backup.delete();
+    // On Windows the filename may differ only in case. Never delete that file.
+    if (p.normalize(launcherPath).toLowerCase() != p.normalize(target.path).toLowerCase()) {
+      final legacy = File(launcherPath);
+      if (await legacy.exists()) await legacy.delete();
+    }
     await downloaded.delete();
+    return target.path;
   }
 
   static Future<void> launchWindows(String path) =>

@@ -62,16 +62,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byTooltip('Свернуть код'), findsNWidgets(2));
     final focusedEditor = tester.widget<QuillEditor>(find.byType(QuillEditor));
+    focusedEditor.controller.updateSelection(const TextSelection.collapsed(offset: 3), ChangeSource.local);
     focusedEditor.focusNode.requestFocus();
     await tester.pump();
     await tester.tap(find.byTooltip('Свернуть код').first);
     await tester.pumpAndSettle();
     expect(find.byTooltip('Развернуть код'), findsOneWidget);
     expect(focusedEditor.focusNode.hasFocus, isFalse);
+    expect(tester.widget<QuillEditor>(find.byType(QuillEditor)).config.showCursor, isFalse);
+    focusedEditor.controller.updateSelection(const TextSelection.collapsed(offset: 3), ChangeSource.local);
+    focusedEditor.focusNode.requestFocus();
+    await tester.pumpAndSettle();
+    expect(tester.widget<QuillEditor>(find.byType(QuillEditor)).config.showCursor, isTrue);
+    for (final offset in [0, 1]) {
+      focusedEditor.controller.updateSelection(TextSelection.collapsed(offset: offset), ChangeSource.local);
+      await tester.pump();
+      expect(tester.widget<QuillEditor>(find.byType(QuillEditor)).config.showCursor, isFalse);
+    }
+    focusedEditor.controller.updateSelection(const TextSelection.collapsed(offset: 3), ChangeSource.local);
+    await tester.pump();
+    expect(tester.widget<QuillEditor>(find.byType(QuillEditor)).config.showCursor, isTrue);
     expect(find.byTooltip('Свернуть код'), findsOneWidget);
     expect(s.store.getNote(note.id)!.plainText, contains('print(1)'));
     final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
     expect(controller.document.toPlainText(), contains('Обычный текст'));
+    controller.updateSelection(const TextSelection.collapsed(offset: 0), ChangeSource.local);
     await tester.tap(find.byTooltip('Блок кода'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'const x = 2;');
@@ -98,6 +113,32 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
+  testWidgets('large collapsed code stays intact while typing ordinary text', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final code = List.generate(1500, (i) => '    const value$i = $i;').join('\n');
+    final note = s.store.createNote(title: 'Большой код', content: jsonEncode([
+      {'insert': '$code\n', 'attributes': {'code-block': true}},
+      {'insert': 'Текст\n'},
+    ]), plainText: '$code\nТекст\n');
+    await pumpApp(tester, s);
+    await tester.tap(find.text('Большой код'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Свернуть код'));
+    await tester.pumpAndSettle();
+    final controller = tester.widget<QuillEditor>(find.byType(QuillEditor)).controller;
+    for (var i = 0; i < 30; i++) {
+      controller.replaceText(controller.document.length - 1, 0, 'a', null);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump(const Duration(seconds: 1));
+    expect(s.store.getNote(note.id)!.plainText, contains(code));
+    expect(s.store.getNote(note.id)!.plainText, contains('a' * 30));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('code information and conditional toolbar deletion preserve ordinary text', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());

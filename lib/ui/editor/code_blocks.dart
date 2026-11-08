@@ -95,6 +95,21 @@ class _CodeBlock extends StatefulWidget {
 
 class _CodeBlockState extends State<_CodeBlock> {
   bool collapsed = false;
+  Widget? _body;
+  String? _language;
+  @override
+  void didUpdateWidget(covariant _CodeBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source || oldWidget.scale != widget.scale || oldWidget.highlight != widget.highlight) {
+      _body = null;
+      _language = null;
+    }
+  }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _body = null;
+  }
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -109,7 +124,7 @@ class _CodeBlockState extends State<_CodeBlock> {
               widget.onToggle();
               WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) widget.onToggle(); });
             }),
-          Expanded(child: Text(detectCodeLanguage(widget.source), style: Theme.of(context).textTheme.labelMedium?.copyWith(fontSize: 12 * widget.scale))),
+          Expanded(child: Text(_language ??= detectCodeLanguage(widget.source), style: Theme.of(context).textTheme.labelMedium?.copyWith(fontSize: 12 * widget.scale))),
           PopupMenuButton<String>(tooltip: 'Действия с блоком кода', onSelected: (action) async {
             if (action == 'edit') widget.onEdit();
             if (action == 'delete') widget.onDelete();
@@ -123,9 +138,9 @@ class _CodeBlockState extends State<_CodeBlock> {
             PopupMenuItem(value: 'delete', child: Text('Удалить блок кода')),
           ]),
         ]),
-        if (!collapsed) Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        if (!collapsed) _body ??= RepaintBoundary(child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
           child: SingleChildScrollView(scrollDirection: Axis.horizontal,
-            child: Text.rich(widget.highlight ? highlightedCode(context, widget.source, style) : TextSpan(text: widget.source, style: style)))),
+            child: Text.rich(widget.highlight ? highlightedCode(context, widget.source, style) : TextSpan(text: widget.source, style: style))))),
       ]));
   }
 }

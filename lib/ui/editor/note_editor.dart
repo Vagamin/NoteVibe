@@ -45,6 +45,39 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
   final _quillScroll = ScrollController();
   final _renderKey = GlobalKey<EditorState>();
   bool _caretPending = false;
+  bool _hideCodeCaret = false;
+
+  void _onEditorFocusChanged() {
+    _updateCodeCaret();
+  }
+
+  void _updateCodeCaret() {
+    if (!mounted) return;
+    if (!_editorFocus.hasFocus) {
+      if (!_hideCodeCaret) setState(() => _hideCodeCaret = true);
+      return;
+    }
+    final position = _quill.selection.extentOffset;
+    var offset = 0;
+    var onCode = false;
+    for (final op in _quill.document.toDelta().toJson()) {
+      final insert = op['insert'];
+      if (insert is Map && insert.containsKey(codeEmbedKey) && position >= offset && position <= offset + 1) {
+        onCode = true;
+        break;
+      }
+      offset += insert is String ? insert.length : 1;
+      if (offset > position) break;
+    }
+    final hide = !_editorFocus.hasFocus || onCode;
+    if (_hideCodeCaret != hide) setState(() => _hideCodeCaret = hide);
+  }
+
+  void _hideCaretForCode() {
+    if (!mounted) return;
+    if (!_hideCodeCaret) setState(() => _hideCodeCaret = true);
+    _editorFocus.unfocus();
+  }
   StreamSubscription<DocChange>? _docSub;
   StreamSubscription<void>? _storeSub;
   Timer? _saveTimer;
@@ -173,6 +206,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     super.initState();
     _services = ref.read(servicesProvider);
     WidgetsBinding.instance.addObserver(this);
+    _editorFocus.addListener(_onEditorFocusChanged);
     _quill = QuillController.basic();
     _load();
     _title.addListener(_onEdited);
@@ -210,6 +244,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
       }
     });
     _quill.addListener(_keepCaretVisible);
+    _quill.addListener(_updateCodeCaret);
     if (!identical(oldQuill, _quill)) oldQuill.dispose();
     _title.removeListener(_onEdited);
     _title.text = n?.title ?? '';
@@ -284,7 +319,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     try {
       final operations = expandCodeBlocks(_quill.document.toDelta().toJson());
       final content = jsonEncode(operations);
-      final plain = Document.fromJson(operations).toPlainText();
+      final plain = operations.map((op) => op['insert'] is String ? op['insert'] as String : '\uFFFC').join();
       final updated = _store.updateNote(widget.noteId,
           title: _title.text, content: content, plainText: plain);
       _dirty = false;
@@ -309,6 +344,7 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
     _docSub?.cancel();
     _storeSub?.cancel();
     _quill.dispose();
+    _editorFocus.removeListener(_onEditorFocusChanged);
     _title.dispose();
     _editorFocus.dispose();
     _scroll.dispose();
@@ -438,11 +474,12 @@ class NoteEditorState extends ConsumerState<NoteEditor> with WidgetsBindingObser
                     focusNode: _editorFocus,
                     scrollController: _quillScroll,
                       config: QuillEditorConfig(
+                        showCursor: !_hideCodeCaret,
                         embedBuilders: [CodeBlockBuilder(
                           scale: ref.watch(noteFontSizeProvider).scale,
                           highlight: _store.getSetting('code_highlight') != 'false',
                           onEdit: _editEmbeddedCode, onDelete: _deleteEmbeddedCode,
-                          onToggle: () => _editorFocus.unfocus())],
+                          onToggle: _hideCaretForCode)],
                        showCodeBlockLineNumbers: false,
                       scrollable: false,
                       editorKey: _renderKey,

@@ -107,7 +107,7 @@ class NotesList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final query = ref.watch(searchQueryProvider);
     ref.watch(storeChangesProvider);
-    final folderNames = ref.watch(foldersEnabledProvider)
+    final folderNames = ref.watch(foldersEnabledProvider) && ref.watch(folderLabelsEnabledProvider)
         ? {for (final f in ref.watch(storeProvider).listFolders()) f.id: f.title}
         : null;
     final notes = filterBoard && query.trim().isEmpty
@@ -407,22 +407,12 @@ class NoteCard extends StatelessWidget {
                 Text('Голосовая заметка', style: t.labelSmall?.copyWith(color: s.outline)),
               ]),
             ],
-            if (checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly) ...[
+            if (note.important && checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly) ...[
               const SizedBox(height: 4),
               Row(children: [
                 Icon(Icons.checklist, size: 14, color: s.outline),
                 const SizedBox(width: 4),
-                Text('$doneCount из ${checkItems.length}',
-                    style: t.labelSmall?.copyWith(color: s.outline)),
-              ]),
-            ],
-            if (note.important) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                Icon(Icons.star, size: 14, color: importantColor),
-                const SizedBox(width: 4),
-                Text('ВАЖНОЕ',
-                    style: t.labelSmall?.copyWith(color: importantColor, fontWeight: FontWeight.w600, letterSpacing: 0.6)),
+                Text('$doneCount из ${checkItems.length}', style: t.labelSmall?.copyWith(color: s.outline)),
               ]),
             ],
             if (hasCode) ...[
@@ -439,11 +429,25 @@ class NoteCard extends StatelessWidget {
                     fontSize: (t.labelSmall?.fontSize ?? 11) * fontScale)),
               ),
             ],
-            if (folderName != null) ...[
+            if (folderName != null || note.important || (checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly)) ...[
               const SizedBox(height: 6),
-              Align(alignment: Alignment.bottomRight, child: Text(folderName!,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: t.labelSmall?.copyWith(color: s.onSurfaceVariant))),
+              Row(children: [
+                if (note.important) ...[
+                  Icon(Icons.star, size: 14, color: importantColor),
+                  const SizedBox(width: 4),
+                  Text('ВАЖНОЕ', style: t.labelSmall?.copyWith(color: importantColor,
+                    fontWeight: FontWeight.w600, letterSpacing: 0.6)),
+                  const SizedBox(width: 8),
+                ] else if (checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly) ...[
+                  Icon(Icons.checklist, size: 14, color: s.outline),
+                  const SizedBox(width: 4),
+                  Text('$doneCount из ${checkItems.length}', style: t.labelSmall?.copyWith(color: s.outline)),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(child: folderName == null ? const SizedBox.shrink() : Text(folderName!,
+                  textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: t.labelSmall?.copyWith(color: s.outline))),
+              ]),
             ],
           ]),
         ),

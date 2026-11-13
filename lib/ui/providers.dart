@@ -242,6 +242,7 @@ class FolderSelection extends Notifier<String?> {
 // null = all, empty string = unfiled.
 final folderSelectionProvider = NotifierProvider<FolderSelection, String?>(FolderSelection.new);
 final foldersEnabledProvider = Provider<bool>((ref) => ref.watch(storeProvider).getSetting('folders_enabled') != 'false');
+final folderLabelsEnabledProvider = Provider<bool>((ref) => ref.watch(storeProvider).getSetting('folder_labels_enabled') != 'false');
 
 // Page contents must not depend on the currently selected page: changing the
 // title mid-swipe otherwise reloads every visible list from SQLite.

@@ -3,9 +3,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notevibe/main.dart';
 import 'package:notevibe/ui/providers.dart';
+import 'package:notevibe/ui/notes_list/notes_list.dart';
 import 'app_test.dart' show makeServices;
 
 void main() {
+  testWidgets('folder label shares important footer and can be hidden', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final folder = s.store.createFolder('Метка папки');
+    final note = s.store.createNote(title: 'Карточка', folderId: folder.id);
+    s.store.setImportant(note.id, true);
+    await tester.pumpWidget(ProviderScope(overrides: [servicesProvider.overrideWithValue(s)], child: const NoteVibeApp()));
+    await tester.pumpAndSettle();
+    final label = find.text('Метка папки');
+    final important = find.text('ВАЖНОЕ');
+    expect((tester.getCenter(label).dy - tester.getCenter(important).dy).abs(), lessThan(2));
+    final date = find.text(formatShortDate(note.updatedAt));
+    expect(tester.widget<Text>(label).style!.color, tester.widget<Text>(date).style!.color);
+    final height = tester.getSize(find.byType(NoteCard)).height;
+    final container = ProviderScope.containerOf(tester.element(find.byType(NoteVibeApp)));
+    s.store.setSetting('folder_labels_enabled', 'false');
+    container.invalidate(folderLabelsEnabledProvider);
+    await tester.pumpAndSettle();
+    expect(label, findsNothing);
+    expect(tester.getSize(find.byType(NoteCard)).height, height);
+    expect(important, findsOneWidget);
+  });
   testWidgets('move selection into new folder and restore last folder', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());

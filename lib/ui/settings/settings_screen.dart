@@ -161,6 +161,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               setState(() {});
             },
           ),
+          _SettingsSwitch(
+            icon: Icons.label_outline,
+            title: const Text('Названия папок на заметках'),
+            subtitle: const Text('Показывать папку в правом нижнем углу карточки.'),
+            value: ref.watch(folderLabelsEnabledProvider),
+            onChanged: (value) {
+              ref.read(storeProvider).setSetting('folder_labels_enabled', '$value');
+              ref.invalidate(folderLabelsEnabledProvider);
+              setState(() {});
+            },
+          ),
           _SettingsTile(
             leading: const Icon(Icons.view_headline_outlined),
             title: const Text('Предпросмотр заметок'),

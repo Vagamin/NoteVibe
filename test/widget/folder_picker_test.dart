@@ -22,6 +22,12 @@ void main() {
     expect(tester.widget<Text>(label).style!.color, tester.widget<Text>(date).style!.color);
     final height = tester.getSize(find.byType(NoteCard)).height;
     final container = ProviderScope.containerOf(tester.element(find.byType(NoteVibeApp)));
+    container.read(folderSelectionProvider.notifier).select(folder.id);
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(NoteCard), matching: find.text('Метка папки')), findsNothing);
+    container.read(folderSelectionProvider.notifier).select(null);
+    await tester.pumpAndSettle();
+    expect(label, findsOneWidget);
     s.store.setSetting('folder_labels_enabled', 'false');
     container.invalidate(folderLabelsEnabledProvider);
     await tester.pumpAndSettle();
@@ -48,7 +54,7 @@ void main() {
     final folder = s.store.listFolders().single;
     expect(s.store.getNote(note.id)!.folderId, folder.id);
     expect(s.store.getSetting('last_folder'), folder.id);
-    expect(find.text('Новая'), findsNWidgets(2));
+    expect(find.text('Новая'), findsOneWidget);
     container.invalidate(folderSelectionProvider);
     expect(container.read(folderSelectionProvider), folder.id);
     container.read(folderSelectionProvider.notifier).select(null);

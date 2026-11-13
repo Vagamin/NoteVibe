@@ -107,7 +107,8 @@ class NotesList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final query = ref.watch(searchQueryProvider);
     ref.watch(storeChangesProvider);
-    final folderNames = ref.watch(foldersEnabledProvider) && ref.watch(folderLabelsEnabledProvider)
+    final showFolderLabels = filterBoard ? boardId == null : ref.watch(folderSelectionProvider) == null;
+    final folderNames = showFolderLabels && ref.watch(foldersEnabledProvider) && ref.watch(folderLabelsEnabledProvider)
         ? {for (final f in ref.watch(storeProvider).listFolders()) f.id: f.title}
         : null;
     final notes = filterBoard && query.trim().isEmpty

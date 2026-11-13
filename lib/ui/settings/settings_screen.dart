@@ -149,6 +149,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           Text('Список заметок', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
+          _SettingsSwitch(
+            icon: Icons.folder_outlined,
+            title: const Text('Папки заметок'),
+            subtitle: const Text('Группировка заметок по папкам. При отключении папки и их содержимое сохраняются.'),
+            value: ref.watch(foldersEnabledProvider),
+            onChanged: (value) {
+              ref.read(storeProvider).setSetting('folders_enabled', '$value');
+              ref.invalidate(foldersEnabledProvider);
+              ref.read(folderSelectionProvider.notifier).select(null);
+              setState(() {});
+            },
+          ),
           _SettingsTile(
             leading: const Icon(Icons.view_headline_outlined),
             title: const Text('Предпросмотр заметок'),

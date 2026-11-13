@@ -109,6 +109,9 @@ const _migrations = <String>[
   '''
   ALTER TABLE attachments ADD COLUMN display_name TEXT;
   ''',
+  '''
+  ALTER TABLE notes ADD COLUMN folder_id TEXT;
+  ''',
 ];
 
 int get schemaVersion => _migrations.length;

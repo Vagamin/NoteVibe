@@ -26,6 +26,7 @@ class ApplyResult {
 /// appends to `change_log` and assigns the note a new monotonically
 /// increasing `seq`. Sync uses `seq` as a resumable cursor.
 class NoteStore {
+  static const maxFolders = 20;
   final Database _db;
   final bool _ownsDatabase;
   final String deviceId;
@@ -87,8 +88,40 @@ class NoteStore {
 
   // ---------------------------------------------------------------- notes
 
+  /// Folder records use the existing versioned change log, conflict handling,
+  /// encrypted storage and backup transport, including deletion tombstones.
+  List<Note> listFolders() => _listWhere("deleted = 0 AND kind = 'folder'", query: '', order: 'title COLLATE NOCASE, id');
+
+  Note createFolder(String name) {
+    final title = name.trim();
+    if (title.isEmpty || title.length > 80) throw ArgumentError('Название папки: от 1 до 80 символов');
+    return createNote(title: title, kind: 'folder');
+  }
+
+  void moveToFolder(Iterable<String> ids, String? folderId) {
+    if (folderId != null && !listFolders().any((f) => f.id == folderId)) throw ArgumentError('Папка не найдена');
+    _tx(() {
+      for (final id in ids) {
+        final cur = getNote(id);
+        if (cur == null || cur.deleted || cur.kind == 'folder' || cur.folderId == folderId) continue;
+        final next = cur.copyWith(folderId: folderId, clearFolder: folderId == null,
+          version: cur.version.increment(deviceId), lastDevice: deviceId);
+        _writeNote(next, _appendLog(id, 'upsert', next.version, deviceId));
+      }
+    });
+    _notify();
+  }
+
+  void deleteFolder(String id) {
+    final folder = getNote(id);
+    if (folder == null || folder.kind != 'folder') return;
+    // Keep assignments as references to a tombstone: every client resolves a
+    // missing/deleted folder as "unfiled", including offline concurrent moves.
+    deleteNotes([id]);
+  }
+
   static const _noteCols =
-      'id, title, content, plain, created, updated, vv, dev, deleted, important, archived, trashed_at, position, kind, '
+      'id, title, content, plain, created, updated, vv, dev, deleted, important, archived, trashed_at, position, kind, folder_id, '
       '(SELECT COUNT(*) FROM conflicts c WHERE c.note_id = notes.id) AS nconf';
 
   Note _rowToNote(Row r) => Note(
@@ -106,6 +139,7 @@ class NoteStore {
         trashedAt: r['trashed_at'] == null ? null : DateTime.fromMillisecondsSinceEpoch(r['trashed_at'] as int),
         position: r['position'] as int,
         kind: r['kind'] as String,
+        folderId: r['folder_id'] as String?,
         hasConflict: ((r['nconf'] as int?) ?? 0) > 0,
       );
 
@@ -118,21 +152,21 @@ class NoteStore {
   /// then by [manual] order or newest first. [query] does a case-insensitive
   /// substring search in title and text (Unicode-aware).
   List<Note> listNotes({String query = '', bool manual = false}) => _listWhere(
-        'deleted = 0 AND archived = 0 AND trashed_at IS NULL',
+        "deleted = 0 AND archived = 0 AND trashed_at IS NULL AND kind != 'folder'",
         query: query,
         order: manual ? 'important DESC, position, updated DESC' : 'important DESC, updated DESC',
       );
 
   /// Lists archived notes, newest first.
   List<Note> listArchived({String query = ''}) => _listWhere(
-        'deleted = 0 AND archived = 1 AND trashed_at IS NULL',
+        "deleted = 0 AND archived = 1 AND trashed_at IS NULL AND kind != 'folder'",
         query: query,
         order: 'important DESC, updated DESC',
       );
 
   /// Lists notes in the trash, most recently deleted first.
   List<Note> listTrashed({String query = ''}) => _listWhere(
-        'deleted = 0 AND trashed_at IS NOT NULL',
+        "deleted = 0 AND trashed_at IS NOT NULL AND kind != 'folder'",
         query: query,
         order: 'trashed_at DESC',
       );
@@ -284,13 +318,13 @@ class NoteStore {
   void _writeNote(Note n, int seq, {List<String>? dismissed, String? src}) {
     dismissed ??= _dismissed(n.id);
     _db.execute(
-      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, archived, trashed_at, position, kind, seq, src, dismissed) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'INSERT INTO notes (id, title, content, plain, search, created, updated, vv, dev, deleted, important, archived, trashed_at, position, kind, seq, src, dismissed, folder_id) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(id) DO UPDATE SET title=excluded.title, content=excluded.content, '
       'plain=excluded.plain, search=excluded.search, created=excluded.created, '
       'updated=excluded.updated, vv=excluded.vv, dev=excluded.dev, deleted=excluded.deleted, '
       'important=excluded.important, archived=excluded.archived, trashed_at=excluded.trashed_at, '
-      'position=excluded.position, kind=excluded.kind, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed',
+      'position=excluded.position, kind=excluded.kind, seq=excluded.seq, src=excluded.src, dismissed=excluded.dismissed, folder_id=excluded.folder_id',
       [
         n.id,
         n.title,
@@ -310,6 +344,7 @@ class NoteStore {
         seq,
         src,
         jsonEncode(dismissed),
+        n.folderId,
       ],
     );
   }
@@ -320,7 +355,10 @@ class NoteStore {
     return (jsonDecode(rs.first['dismissed'] as String) as List).cast<String>();
   }
 
-  Note createNote({String title = '', String content = emptyDeltaJson, String plainText = '', String kind = 'text'}) {
+  Note createNote({String title = '', String content = emptyDeltaJson, String plainText = '', String kind = 'text', String? folderId}) {
+    if (kind == 'folder' && listFolders().length >= maxFolders) {
+      throw StateError('Можно создать не больше $maxFolders папок');
+    }
     final now = _now();
     // New notes go to the top of the manual order.
     final top = _db.select('SELECT COALESCE(MIN(position), 0) - 1 AS p FROM notes WHERE deleted = 0').first['p'] as int;
@@ -335,6 +373,7 @@ class NoteStore {
       lastDevice: deviceId,
       position: top,
       kind: kind,
+      folderId: folderId,
     );
     _tx(() {
       final seq = _appendLog(note.id, 'upsert', note.version, deviceId);

@@ -88,6 +88,9 @@ class NotesList extends ConsumerWidget {
 
   /// Shows notes in the trash instead of the main list.
   final bool trashed;
+  final double topInset;
+  final bool filterBoard;
+  final String? boardId;
   const NotesList({
     super.key,
     required this.onOpen,
@@ -95,16 +98,21 @@ class NotesList extends ConsumerWidget {
     this.large = false,
     this.archived = false,
     this.trashed = false,
+    this.topInset = 0,
+    this.filterBoard = false,
+    this.boardId,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notes = ref.watch(trashed
+    final query = ref.watch(searchQueryProvider);
+    final notes = filterBoard && query.trim().isEmpty
+        ? ref.watch(boardNotesProvider(boardId))
+        : ref.watch(trashed
         ? trashedNotesProvider
         : archived
             ? archivedNotesProvider
             : notesProvider);
-    final query = ref.watch(searchQueryProvider);
     final previewLines = ref.watch(previewLinesProvider);
     final voicePreview = ref.watch(voicePreviewProvider);
     final fontScale = ref.watch(noteFontSizeProvider).scale;
@@ -164,7 +172,7 @@ class NotesList extends ConsumerWidget {
     if (manual) {
       final isDesktop = Platform.isWindows;
       return ReorderableListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 100),
+        padding: EdgeInsets.fromLTRB(16, 10 + topInset, 16, 100),
         itemCount: notes.length,
         buildDefaultDragHandles: false,
         proxyDecorator: (child, index, animation) => AnimatedBuilder(
@@ -211,7 +219,7 @@ class NotesList extends ConsumerWidget {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 100),
+      padding: EdgeInsets.fromLTRB(16, 10 + topInset, 16, 100),
       itemCount: notes.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: itemBuilder,

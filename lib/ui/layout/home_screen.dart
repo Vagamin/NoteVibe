@@ -1,4 +1,5 @@
 import '../widgets/rounded_popup_menu_item.dart';
+import '../notes_list/folder_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,6 +35,12 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
+  void _stepBoard(int delta) {
+    if (ref.read(selectionProvider) != null) return;
+    final ids = boardIds(ref.read(storeProvider));
+    final index = ids.indexOf(ref.read(folderSelectionProvider));
+    ref.read(folderSelectionProvider.notifier).select(ids[((index < 0 ? 0 : index) + delta) % ids.length]);
+  }
   final _searchFocus = FocusNode();
   bool _searchVisible = false;
 
@@ -118,13 +125,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   void _newNote(bool wide) {
     ref.read(searchQueryProvider.notifier).set('');
-    final n = ref.read(storeProvider).createNote();
+    final folder = ref.read(storeProvider).getSetting('folders_enabled') == 'false' ? null : ref.read(folderSelectionProvider);
+    final n = ref.read(storeProvider).createNote(folderId: folder == '' ? null : folder);
     _open(n, wide);
   }
 
   void _newVoiceNote(bool wide) {
     ref.read(searchQueryProvider.notifier).set('');
-    final n = ref.read(storeProvider).createNote(kind: 'voice');
+    final folder = ref.read(storeProvider).getSetting('folders_enabled') == 'false' ? null : ref.read(folderSelectionProvider);
+    final n = ref.read(storeProvider).createNote(kind: 'voice', folderId: folder == '' ? null : folder);
     _open(n, wide);
   }
 
@@ -283,6 +292,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     ];
 
     final listPane = Column(children: [
+      if (selecting != null) const FolderPicker(),
       if (wide && selecting == null) Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
         child: Row(children: [
@@ -300,7 +310,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         ]),
       ),
       Expanded(
-        child: NotesList(
+        child: !wide && ref.watch(foldersEnabledProvider) && selecting == null && ref.watch(searchQueryProvider).trim().isEmpty
+          ? BoardNotesPager(onOpen: (n) => _open(n, false))
+          : NotesList(
           selectedId: wide ? selected : null,
           large: !wide,
           onOpen: (n) => _open(n, wide),
@@ -329,6 +341,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
     return CallbackShortcuts(
       bindings: {
+        if (ref.watch(foldersEnabledProvider)) ...{
+          const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () => _stepBoard(-1),
+          const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () => _stepBoard(1),
+        },
         const SingleActivator(LogicalKeyboardKey.keyN, control: true): () => _newNote(wide),
         const SingleActivator(LogicalKeyboardKey.keyF, control: true): _openSearch,
         if (!transferSelecting && selecting != null && selecting.isNotEmpty)
@@ -402,7 +418,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 )
               : AppBar(
                    key: const ValueKey('normal'),
-                    title: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
+                    title: ref.watch(foldersEnabledProvider) ? const FolderPicker() : Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
                       Flexible(child: InkWell(
                       borderRadius: BorderRadius.circular(8),
                       splashFactory: NoSplash.splashFactory,

@@ -227,12 +227,41 @@ class TransferSelection extends Notifier<bool> {
 }
 final transferSelectionProvider = NotifierProvider<TransferSelection, bool>(TransferSelection.new);
 
+class FolderSelection extends Notifier<String?> {
+  @override
+  String? build() => null;
+  void select(String? id) => state = id;
+}
+// null = all, empty string = unfiled.
+final folderSelectionProvider = NotifierProvider<FolderSelection, String?>(FolderSelection.new);
+final foldersEnabledProvider = Provider<bool>((ref) => ref.watch(storeProvider).getSetting('folders_enabled') != 'false');
+
+// Page contents must not depend on the currently selected page: changing the
+// title mid-swipe otherwise reloads every visible list from SQLite.
+final _boardSourceProvider = Provider<List<Note>>((ref) {
+  ref.watch(storeChangesProvider);
+  return ref.watch(storeProvider).listNotes(manual: ref.watch(manualOrderProvider));
+});
+final boardNotesProvider = Provider.autoDispose.family<List<Note>, String?>((ref, id) {
+  final notes = ref.watch(_boardSourceProvider);
+  if (id == null) return notes;
+  final folders = ref.watch(storeProvider).listFolders().map((f) => f.id).toSet();
+  return notes.where((n) => id.isEmpty ? !folders.contains(n.folderId) : n.folderId == id).toList();
+});
+
 final notesProvider = Provider<List<Note>>((ref) {
   ref.watch(storeChangesProvider);
-  return ref.watch(storeProvider).listNotes(
-        query: ref.watch(searchQueryProvider),
+  final store = ref.watch(storeProvider);
+  final query = ref.watch(searchQueryProvider);
+  final folder = ref.watch(folderSelectionProvider);
+  final notes = store.listNotes(
+        query: query,
         manual: ref.watch(manualOrderProvider),
-      );
+       );
+  if (!ref.watch(foldersEnabledProvider) || folder == null || query.trim().isNotEmpty) return notes;
+  final folders = store.listFolders().map((f) => f.id).toSet();
+  if (folder.isNotEmpty && folders.contains(folder)) return notes.where((n) => n.folderId == folder).toList();
+  return notes.where((n) => !folders.contains(n.folderId)).toList();
 });
 
 final archivedNotesProvider = Provider<List<Note>>((ref) {

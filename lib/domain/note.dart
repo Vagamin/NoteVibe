@@ -100,6 +100,7 @@ class Note {
 
   /// `text` for a usual note, `voice` for a note made of voice recordings.
   final String kind;
+  final String? folderId;
 
   /// Computed: there are unresolved conflicting versions for this note.
   final bool hasConflict;
@@ -119,6 +120,7 @@ class Note {
     this.trashedAt,
     this.position = 0,
     this.kind = 'text',
+    this.folderId,
     this.hasConflict = false,
   });
 
@@ -138,6 +140,8 @@ class Note {
     bool clearTrashed = false,
     int? position,
     String? kind,
+    String? folderId,
+    bool clearFolder = false,
     bool? hasConflict,
   }) =>
       Note(
@@ -155,6 +159,7 @@ class Note {
         trashedAt: clearTrashed ? null : (trashedAt ?? this.trashedAt),
         position: position ?? this.position,
         kind: kind ?? this.kind,
+        folderId: clearFolder ? null : folderId ?? this.folderId,
         hasConflict: hasConflict ?? this.hasConflict,
       );
 
@@ -166,7 +171,7 @@ class Note {
       important == other.important &&
       archived == other.archived &&
       (trashedAt == null) == (other.trashedAt == null) &&
-      kind == other.kind;
+      kind == other.kind && folderId == other.folderId;
 
   String get displayTitle {
     if (title.trim().isNotEmpty) return title.trim();
@@ -189,6 +194,7 @@ class Note {
         'trs': trashedAt?.millisecondsSinceEpoch ?? 0,
         'pos': position,
         'knd': kind,
+        'fld': folderId,
       };
 
   static Note fromWire(Map<String, dynamic> m) {
@@ -211,6 +217,7 @@ class Note {
       trashedAt: trs == 0 ? null : DateTime.fromMillisecondsSinceEpoch(trs),
       position: (m['pos'] as num?)?.toInt() ?? 0,
       kind: m['knd'] as String? ?? 'text',
+      folderId: m['fld'] as String?,
     );
   }
 

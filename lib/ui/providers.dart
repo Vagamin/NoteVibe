@@ -229,8 +229,15 @@ final transferSelectionProvider = NotifierProvider<TransferSelection, bool>(Tran
 
 class FolderSelection extends Notifier<String?> {
   @override
-  String? build() => null;
-  void select(String? id) => state = id;
+  String? build() {
+    final store = ref.watch(storeProvider);
+    final id = store.getSetting('last_folder');
+    return id == '' || store.listFolders().any((f) => f.id == id) ? id : null;
+  }
+  void select(String? id) {
+    ref.read(storeProvider).setSetting('last_folder', id ?? '@all');
+    state = id;
+  }
 }
 // null = all, empty string = unfiled.
 final folderSelectionProvider = NotifierProvider<FolderSelection, String?>(FolderSelection.new);

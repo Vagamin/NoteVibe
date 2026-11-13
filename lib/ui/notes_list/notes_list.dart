@@ -106,6 +106,10 @@ class NotesList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final query = ref.watch(searchQueryProvider);
+    ref.watch(storeChangesProvider);
+    final folderNames = ref.watch(foldersEnabledProvider)
+        ? {for (final f in ref.watch(storeProvider).listFolders()) f.id: f.title}
+        : null;
     final notes = filterBoard && query.trim().isEmpty
         ? ref.watch(boardNotesProvider(boardId))
         : ref.watch(trashed
@@ -147,6 +151,7 @@ class NotesList extends ConsumerWidget {
       final selecting = picked != null;
       return NoteCard(
         note: n,
+        folderName: folderNames == null ? null : folderNames[n.folderId] ?? 'Без папки',
         voice: n.isVoice ? ref.read(storeProvider).attachmentsFor(n.id).where((a) => a.mime.startsWith('audio/')).toList() : null,
         voiceService: ref.read(attachmentServiceProvider),
         selected: n.id == selectedId || inSelection,
@@ -228,6 +233,7 @@ class NotesList extends ConsumerWidget {
 }
 
 class NoteCard extends StatelessWidget {
+  final String? folderName;
   final Note note;
   /// Recordings of a voice note, played by the card's mini player. Null for text notes.
   final List<Attachment>? voice;
@@ -246,6 +252,7 @@ class NoteCard extends StatelessWidget {
 
   const NoteCard({
     super.key,
+    this.folderName,
     required this.note,
     this.voice,
     this.voiceService,
@@ -431,6 +438,12 @@ class NoteCard extends StatelessWidget {
                   style: t.labelSmall?.copyWith(color: s.onSurfaceVariant,
                     fontSize: (t.labelSmall?.fontSize ?? 11) * fontScale)),
               ),
+            ],
+            if (folderName != null) ...[
+              const SizedBox(height: 6),
+              Align(alignment: Alignment.bottomRight, child: Text(folderName!,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: t.labelSmall?.copyWith(color: s.onSurfaceVariant))),
             ],
           ]),
         ),

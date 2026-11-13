@@ -6,6 +6,32 @@ import 'package:notevibe/ui/providers.dart';
 import 'app_test.dart' show makeServices;
 
 void main() {
+  testWidgets('move selection into new folder and restore last folder', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final note = s.store.createNote(title: 'Переносимая');
+    await tester.pumpWidget(ProviderScope(overrides: [servicesProvider.overrideWithValue(s)], child: const NoteVibeApp()));
+    await tester.pumpAndSettle();
+    var container = ProviderScope.containerOf(tester.element(find.byType(NoteVibeApp)));
+    container.read(selectionProvider.notifier).toggle(note.id);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Переместить (1)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Переместить в новую папку'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Новая');
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    final folder = s.store.listFolders().single;
+    expect(s.store.getNote(note.id)!.folderId, folder.id);
+    expect(s.store.getSetting('last_folder'), folder.id);
+    expect(find.text('Новая'), findsNWidgets(2));
+    container.invalidate(folderSelectionProvider);
+    expect(container.read(folderSelectionProvider), folder.id);
+    container.read(folderSelectionProvider.notifier).select(null);
+    container.invalidate(folderSelectionProvider);
+    expect(container.read(folderSelectionProvider), isNull);
+  });
   testWidgets('vertical scroll works while board swipe is settling', (tester) async {
     tester.view.physicalSize = const Size(412, 915);
     tester.view.devicePixelRatio = 1;
@@ -65,7 +91,7 @@ void main() {
     await tester.drag(find.byType(PageView), const Offset(-350, 0));
     await tester.pumpAndSettle();
     expect(container.read(folderSelectionProvider), folder.id);
-    await tester.longPress(find.text('Работа'));
+    await tester.longPress(find.descendant(of: find.byType(AppBar), matching: find.text('Работа')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('NoteVibe'));
     await tester.pumpAndSettle();
@@ -77,7 +103,7 @@ void main() {
     expect(s.store.listNotes().single.folderId, folder.id);
     s.store.updateNote(folder.id, title: 'Переименованная');
     await tester.pumpAndSettle();
-    expect(find.text('Переименованная'), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.text('Переименованная')), findsOneWidget);
     final second = s.store.createFolder('Вторая');
     await tester.pumpAndSettle();
     expect(container.read(folderSelectionProvider), folder.id);

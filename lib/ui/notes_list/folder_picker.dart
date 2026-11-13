@@ -8,7 +8,7 @@ import 'notes_list.dart';
 class FolderPicker extends ConsumerWidget {
   const FolderPicker({super.key});
 
-  Future<void> _name(BuildContext context, WidgetRef ref, [Note? folder]) async {
+  Future<void> _name(BuildContext context, WidgetRef ref, [Note? folder, Set<String>? moveIds]) async {
     if (folder == null && ref.read(storeProvider).listFolders().length >= NoteStore.maxFolders) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Можно создать не больше 20 папок')));
       return;
@@ -28,6 +28,10 @@ class FolderPicker extends ConsumerWidget {
       if (folder == null) {
         try {
           final created = store.createFolder(name);
+          if (moveIds != null) {
+            store.moveToFolder(moveIds, created.id);
+            ref.read(selectionProvider.notifier).clear();
+          }
           ref.read(folderSelectionProvider.notifier).select(created.id);
         } on StateError catch (error) {
           if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
@@ -103,6 +107,12 @@ class FolderPicker extends ConsumerWidget {
               for (final folder in folders) _FolderOption(icon: Icons.folder_outlined, title: folder.title,
                 count: notes.where((n) => n.folderId == folder.id).length,
                 selected: !moving && selected == folder.id, onTap: () => Navigator.pop(c, folder.id)),
+              if (moving) ...[
+                const Divider(height: 16),
+                _FolderOption(icon: Icons.create_new_folder_outlined,
+                  title: folders.length >= NoteStore.maxFolders ? 'Лимит: 20 папок' : 'Переместить в новую папку',
+                  onTap: folders.length >= NoteStore.maxFolders ? null : () => Navigator.pop(c, '@new')),
+              ],
               if (!moving) ...[
                 const SizedBox(height: 8),
                 _FolderOption(icon: Icons.create_new_folder_outlined,
@@ -112,7 +122,7 @@ class FolderPicker extends ConsumerWidget {
             ],
           ));
           if (choice == null || !context.mounted) return;
-          if (choice == '@new') { await _name(context, ref); return; }
+          if (choice == '@new') { await _name(context, ref, null, moving ? Set<String>.of(picked) : null); return; }
           if (moving) {
             store.moveToFolder(picked, choice.isEmpty ? null : choice);
             ref.read(selectionProvider.notifier).clear();
@@ -448,14 +458,14 @@ class _FolderOption extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Semantics(selected: selected, enabled: onTap != null,
       child: Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Material(
-      color: selected ? scheme.primaryContainer : scheme.surfaceContainerLow,
+      color: selected ? scheme.tertiaryContainer : scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(12), clipBehavior: Clip.antiAlias,
       child: InkWell(onTap: onTap, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 40), child: Row(children: [
-          Icon(icon, size: 22, color: selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant),
+          Icon(icon, size: 22, color: selected ? scheme.onTertiaryContainer : scheme.onSurfaceVariant),
           const SizedBox(width: 12),
           Expanded(child: Text(title, style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: selected ? scheme.onPrimaryContainer : scheme.onSurface, fontWeight: FontWeight.w600))),
+            color: selected ? scheme.onTertiaryContainer : scheme.onSurface, fontWeight: FontWeight.w600))),
           if (count != null) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(color: scheme.surface.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(8)),
             child: Text('$count', style: Theme.of(context).textTheme.labelMedium)),

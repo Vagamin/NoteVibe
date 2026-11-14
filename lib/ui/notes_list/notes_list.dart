@@ -437,6 +437,7 @@ class NoteCard extends StatelessWidget {
                   Icon(Icons.star, size: 14 * fontScale, color: importantColor),
                   const SizedBox(width: 4),
                   Text('ВАЖНОЕ', style: t.labelSmall?.copyWith(color: importantColor,
+                    fontSize: (t.labelSmall?.fontSize ?? 11) * fontScale,
                     fontWeight: FontWeight.w600, letterSpacing: 0.6)),
                   const SizedBox(width: 8),
                 ] else if (checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly) ...[

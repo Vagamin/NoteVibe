@@ -7,6 +7,20 @@ import 'package:notevibe/ui/notes_list/notes_list.dart';
 import 'app_test.dart' show makeServices;
 
 void main() {
+  testWidgets('important label follows note font size', (tester) async {
+    late AppServices s;
+    await tester.runAsync(() async => s = await makeServices());
+    final note = s.store.createNote(title: 'Важная');
+    s.store.setImportant(note.id, true);
+    await tester.pumpWidget(ProviderScope(overrides: [servicesProvider.overrideWithValue(s)], child: const NoteVibeApp()));
+    await tester.pumpAndSettle();
+    final initial = tester.widget<Text>(find.text('ВАЖНОЕ')).style!.fontSize!;
+    final container = ProviderScope.containerOf(tester.element(find.byType(NoteVibeApp)));
+    container.read(noteFontSizeProvider.notifier).set(NoteFontSize.large);
+    await tester.pumpAndSettle();
+    final large = tester.widget<Text>(find.text('ВАЖНОЕ')).style!.fontSize!;
+    expect(large, greaterThan(initial));
+  });
   testWidgets('folder label shares important footer and can be hidden', (tester) async {
     late AppServices s;
     await tester.runAsync(() async => s = await makeServices());

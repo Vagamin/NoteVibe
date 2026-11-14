@@ -162,9 +162,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
           ),
           Opacity(opacity: ref.watch(foldersEnabledProvider) ? 1 : 0.5,
-            child: IgnorePointer(ignoring: !ref.watch(foldersEnabledProvider), child: Padding(
-              padding: const EdgeInsets.only(left: 12),
-              child: _SettingsSwitch(
+            child: IgnorePointer(ignoring: !ref.watch(foldersEnabledProvider), child:
+              _SettingsSwitch(
                 icon: Icons.label_outline,
                 title: const Text('Названия папок на заметках'),
                 subtitle: const Text('Показывать папку в правом нижнем углу карточки.'),
@@ -174,8 +173,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ref.invalidate(folderLabelsEnabledProvider);
                   setState(() {});
                 } : null,
-              ),
-            ))),
+              ))),
           _SettingsTile(
             leading: const Icon(Icons.view_headline_outlined),
             title: const Text('Предпросмотр заметок'),

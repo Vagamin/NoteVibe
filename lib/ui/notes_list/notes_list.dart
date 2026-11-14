@@ -411,7 +411,7 @@ class NoteCard extends StatelessWidget {
             if (note.important && checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly) ...[
               const SizedBox(height: 4),
               Row(children: [
-                Icon(Icons.checklist, size: 14, color: s.outline),
+                 Icon(Icons.checklist, size: 14 * fontScale, color: s.outline),
                 const SizedBox(width: 4),
                 Text('$doneCount из ${checkItems.length}', style: t.labelSmall?.copyWith(color: s.outline)),
               ]),
@@ -434,20 +434,20 @@ class NoteCard extends StatelessWidget {
               const SizedBox(height: 6),
               Row(children: [
                 if (note.important) ...[
-                  Icon(Icons.star, size: 14, color: importantColor),
+                  Icon(Icons.star, size: 14 * fontScale, color: importantColor),
                   const SizedBox(width: 4),
                   Text('ВАЖНОЕ', style: t.labelSmall?.copyWith(color: importantColor,
                     fontWeight: FontWeight.w600, letterSpacing: 0.6)),
                   const SizedBox(width: 8),
                 ] else if (checkItems.isNotEmpty && previewLines != PreviewLines.titleOnly) ...[
-                  Icon(Icons.checklist, size: 14, color: s.outline),
+                  Icon(Icons.checklist, size: 14 * fontScale, color: s.outline),
                   const SizedBox(width: 4),
                   Text('$doneCount из ${checkItems.length}', style: t.labelSmall?.copyWith(color: s.outline)),
                   const SizedBox(width: 8),
                 ],
                 Expanded(child: folderName == null ? const SizedBox.shrink() : Text(folderName!,
                   textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: t.labelSmall?.copyWith(color: s.outline))),
+                  style: t.labelSmall?.copyWith(color: s.outline, fontSize: (t.labelSmall?.fontSize ?? 11) * fontScale))),
               ]),
             ],
           ]),

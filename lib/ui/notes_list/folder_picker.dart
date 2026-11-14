@@ -458,14 +458,14 @@ class _FolderOption extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Semantics(selected: selected, enabled: onTap != null,
       child: Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Material(
-      color: selected ? scheme.tertiaryContainer : scheme.surfaceContainerLow,
+      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(12), clipBehavior: Clip.antiAlias,
       child: InkWell(onTap: onTap, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 40), child: Row(children: [
-          Icon(icon, size: 22, color: selected ? scheme.onTertiaryContainer : scheme.onSurfaceVariant),
+          Icon(icon, size: 22, color: selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant),
           const SizedBox(width: 12),
           Expanded(child: Text(title, style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: selected ? scheme.onTertiaryContainer : scheme.onSurface, fontWeight: FontWeight.w600))),
+            color: selected ? scheme.onSecondaryContainer : scheme.onSurface, fontWeight: FontWeight.w600))),
           if (count != null) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(color: scheme.surface.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(8)),
             child: Text('$count', style: Theme.of(context).textTheme.labelMedium)),

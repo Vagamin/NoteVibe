@@ -6,7 +6,7 @@ class SettingsSwitchCard extends StatelessWidget {
   final Widget title;
   final Widget? subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
   const SettingsSwitchCard({super.key, required this.icon, required this.title,
     this.subtitle, required this.value, required this.onChanged});
 
@@ -17,7 +17,7 @@ class SettingsSwitchCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => onChanged(!value),
+         onTap: onChanged == null ? null : () => onChanged!(!value),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -29,7 +29,7 @@ class SettingsSwitchCard extends StatelessWidget {
                 child: title,
               )),
               const SizedBox(width: 8),
-              Switch(value: value, onChanged: onChanged),
+               Switch(value: value, onChanged: onChanged),
             ]),
             if (subtitle != null) Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 4),
